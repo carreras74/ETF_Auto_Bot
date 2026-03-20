@@ -194,4 +194,8 @@ for etf_name, files_info in etf_groups.items():
         print(f"❌ 실패 [{etf_name}]: {e}")
 
 print("\n🎉 모든 수량 추적 공정이 완벽하게 완료되었습니다!")
-input("엔터(Enter)를 누르면 창이 닫힙니다...")
+print("\n🎉 모든 수량 추적 공정이 완벽하게 완료되었습니다!")
+try:
+    input("엔터(Enter)를 누르면 창이 닫힙니다...")
+except EOFError:
+    pass # 💡 클라우드(키보드 없는 환경)에서는 에러 내지 말고 그냥 조용히 퇴근해!
