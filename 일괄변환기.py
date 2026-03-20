@@ -30,7 +30,6 @@ try:
     gc = gspread.service_account(filename=os.path.join(current_folder, 'google_key.json'))
     
     # 💡 [주의] 구글 시트 주소를 반드시 다시 적어주세요!
-    SHEET_URL = 'https://docs.google.com/spreadsheets/d/1AbCdEf.../edit'
     SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit?gid=1831966955#gid=1831966955' 
     sh = gc.open_by_url(SHEET_URL)
     
@@ -199,10 +198,6 @@ for etf_name, files_info in etf_groups.items():
         print(f"❌ 실패 [{etf_name}]: {e}")
 
 print("\n🎉 모든 수량 추적 공정이 완벽하게 완료되었습니다!")
-try:
-    input("엔터(Enter)를 누르면 창이 닫힙니다...")
-except EOFError:
-    pass
 try:
     input("엔터(Enter)를 누르면 창이 닫힙니다...")
 except EOFError:
