@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import time
 
 def install_package(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -28,7 +29,8 @@ print("🌐 구글 시트 접속을 시도합니다...")
 try:
     gc = gspread.service_account(filename=os.path.join(current_folder, 'google_key.json'))
     
-    # 💡 [수정 필수] 대표님의 구글 시트 인터넷 주소를 꼭 다시 넣어주세요!
+    # 💡 [주의] 구글 시트 주소를 반드시 다시 적어주세요!
+    SHEET_URL = 'https://docs.google.com/spreadsheets/d/1AbCdEf.../edit'
     SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit?gid=1831966955#gid=1831966955' 
     sh = gc.open_by_url(SHEET_URL)
     
@@ -39,15 +41,18 @@ except Exception as e:
     google_connected = False
 print("=========================================\n")
 
+# 💡 [핵심 패치 2] 파일 이름에 'TIME'이나 'KoAct'가 안 들어가면 절대 수집하지 않습니다!
 all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
              if f.endswith(('.csv', '.xlsx', '.xls')) 
+             and ("TIME" in f or "KoAct" in f) 
              and "30일추적" not in f 
              and "변환완료" not in f
              and "통합완료" not in f]
 
 if not all_files:
     print("❌ 폴더에 원본 파일이 없습니다.")
-    input("엔터를 누르면 종료됩니다...")
+    try: input("엔터를 누르면 종료됩니다...")
+    except: pass
     exit()
 
 etf_groups = {}
@@ -145,7 +150,6 @@ for etf_name, files_info in etf_groups.items():
                     w = 0
                     q = 0
                     
-                # 💡 [핵심 패치] 상승은 빨강(🔴▲), 하락은 파랑(🔵▼)으로 확실하게 색상 지정!
                 if is_first_day:
                     diff_str = "-" 
                 else:
@@ -187,6 +191,7 @@ for etf_name, files_info in etf_groups.items():
                 worksheet.clear()
                 worksheet.update(values=[final_df_gs.columns.values.tolist()] + final_df_gs.values.tolist(), range_name="A1")
                 print(f"   => 🌐 구글 시트 탭 업로드 성공!")
+                time.sleep(2) # 💡 구글 서버 과부하 방지 2초 휴식!
             except Exception as e:
                 print(f"   => ❌ 구글 시트 업로드 실패: {e}")
         
@@ -194,7 +199,10 @@ for etf_name, files_info in etf_groups.items():
         print(f"❌ 실패 [{etf_name}]: {e}")
 
 print("\n🎉 모든 수량 추적 공정이 완벽하게 완료되었습니다!")
-print("\n🎉 모든 수량 추적 공정이 완벽하게 완료되었습니다!")
+try:
+    input("엔터(Enter)를 누르면 창이 닫힙니다...")
+except EOFError:
+    pass
 try:
     input("엔터(Enter)를 누르면 창이 닫힙니다...")
 except EOFError:
