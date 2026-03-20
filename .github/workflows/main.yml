@@ -43,6 +43,6 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add *.xlsx *.xls *.csv
+        git add *.xlsx *.xls
         git commit -m "🤖 일일 데이터 수집 보존 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
         git push
