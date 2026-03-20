@@ -146,7 +146,6 @@ for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(
         except: pass
 
 print("\n✨ 16개 ETF 수집 및 청소 공정 완벽 종료!")
-    time.sleep(2)
     driver.quit()
 
 print("\n✨ 16개 ETF 수집 공정 완료!")
