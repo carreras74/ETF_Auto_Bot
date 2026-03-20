@@ -38,3 +38,15 @@ jobs:
     - name: 6. 구글 시트 일괄 변환 및 업로드 실행
       run: |
         python 일괄변환기.py
+
+    # 💡 [핵심 추가 패치] 로봇의 '기억 상실' 방지! 
+    # 오늘 수집한 원본 엑셀 데이터를 깃허브 저장소에 영구 보존합니다.
+    - name: 7. 오늘 수집한 엑셀 데이터 깃허브에 영구 저장 (Commit & Push)
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add *.xlsx *.xls *.csv
+        git commit -m "🤖 일일 데이터 수집 보존 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
+        git push- name: 6. 구글 시트 일괄 변환 및 업로드 실행
+      run: |
+        python 일괄변환기.py
