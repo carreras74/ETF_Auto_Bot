@@ -46,9 +46,6 @@ task_list = [
 ]
 
 chrome_options = Options()
-# 💡 유령 모드 봉인! (클라우드에서는 가상 모니터를 띄워 해결합니다)
-# chrome_options.add_argument('--headless=new') 
-
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--window-size=1920x1080')
@@ -121,6 +118,13 @@ try:
                             break
                     
                     if new_file_path:
+                        ext = os.path.splitext(new_file_path)[1]
+                        if brand == "TIME": final_name = f"구성종목(PDF){brand}{etf_name}_{date_time}{ext}"
+                        else: final_name = f"{brand} {etf_name}_{date_koact}{ext}"
+                            
+                        final_path = os.path.join(target_dir, final_name)
+                        if os.path.exists(final_path): os.remove(final_path)
+                        shutil.move(new_file_path, final_path)
                         print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ")
                     else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.")
                 else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.")
@@ -128,6 +132,20 @@ try:
             time.sleep(2)
 
 finally:
+    time.sleep(2)
+    driver.quit()
+
+# 💡 [핵심 패치 1] 수집이 끝나면 찌꺼기 파일(1, 2, 3...)을 모조리 찾아내서 삭제합니다!
+print("\n🧹 찌꺼기 파일 청소 중...")
+for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
+    fname = os.path.basename(f)
+    if "TIME" not in fname and "KoAct" not in fname:
+        try: 
+            os.remove(f)
+            print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}")
+        except: pass
+
+print("\n✨ 16개 ETF 수집 및 청소 공정 완벽 종료!")
     time.sleep(2)
     driver.quit()
 
