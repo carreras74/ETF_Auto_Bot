@@ -1,0 +1,40 @@
+name: 아침 주도주 자동 수집 봇 (Daily 8 AM KST)
+
+on:
+  schedule:
+    # 💡 영국의 표준시(UTC) 기준 밤 11시는 한국 시간(KST)으로 정확히 아침 8시입니다.
+    - cron: '0 23 * * *' 
+  workflow_dispatch: # 💡 내가 원할 때 수동으로 버튼을 눌러서 실행할 수 있게 해주는 마법의 스위치!
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest # 마이크로소프트가 빌려주는 무료 리눅스 컴퓨터
+
+    steps:
+    - name: 1. 내 저장소 파일 가져오기 (Checkout)
+      uses: actions/checkout@v3
+
+    - name: 2. 파이썬 환경 세팅
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: 3. 가상 모니터(Xvfb) 및 필수 패키지 설치
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xvfb
+        pip install -r requirements.txt
+
+    - name: 4. 구글 시트 비밀키(JSON) 생성
+      env:
+        GCP_KEY: ${{ secrets.GCP_KEY }}
+      run: |
+        echo "$GCP_KEY" > google_key.json
+
+    - name: 5. 엑셀 파일 수집기 실행 (가상 모니터 환경 탑재!)
+      run: |
+        xvfb-run -a python ETF_collector.py
+
+    - name: 6. 구글 시트 일괄 변환 및 업로드 실행
+      run: |
+        python 일괄변환기.py
