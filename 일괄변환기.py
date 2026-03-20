@@ -185,7 +185,7 @@ for etf_name, files_info in etf_groups.items():
                 if etf_name in existing_sheets:
                     worksheet = sh.worksheet(etf_name)
                 else:
-                    worksheet = sh.add_worksheet(title=etf_name, rows="100", cols="30")
+                    worksheet = sh.add_worksheet(title=etf_name, rows="1000", cols="100")
                 
                 final_df_gs = final_df.fillna("")
                 worksheet.clear()
