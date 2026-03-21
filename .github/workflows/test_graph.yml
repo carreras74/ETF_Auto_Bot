@@ -22,7 +22,7 @@ jobs:
 
     - name: 4. [핵심] 수집 생략하고 입체 분석기(그래프)만 단독 실행!
       run: |
-        python 분석기.py
+        python 분석기.PY
 
     - name: 5. 완성된 그래프 이미지(*.png)만 깃허브에 저장
       run: |
