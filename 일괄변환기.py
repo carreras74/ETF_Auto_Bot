@@ -14,6 +14,12 @@ except ImportError:
     install_package("gspread")
     import gspread
 
+# 💡 [시즌 2 핵심 엔진] 파이낸스 데이터 리더 장착
+try: import FinanceDataReader as fdr
+except ImportError:
+    install_package("finance-datareader")
+    import FinanceDataReader as fdr
+
 import pandas as pd
 import glob
 import re
@@ -22,7 +28,7 @@ try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [비중 + 수량증감 추적 모터] 통합 변환기 실행 중...\n")
+print("🚀 [비중 + 수량증감 + 주가 추적 모터] 시즌2 변환기 실행 중...\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
@@ -40,7 +46,26 @@ except Exception as e:
     google_connected = False
 print("=========================================\n")
 
-# 💡 [핵심 패치 2] 파일 이름에 'TIME'이나 'KoAct'가 안 들어가면 절대 수집하지 않습니다!
+# =====================================================================
+# 💡 [시즌 2 핵심 패치] KRX 전 종목 데이터 단 1초만에 캐싱 (사전 베이킹)
+# =====================================================================
+print("=========================================")
+print("📈 한국거래소(KRX) 전체 주가/등락률 초고속 스캔 중...")
+try:
+    krx_df = fdr.StockListing('KRX')
+    krx_dict = {}
+    for _, row in krx_df.iterrows():
+        krx_dict[str(row['Name']).strip()] = {
+            'Close': row['Close'],
+            'ChagesRatio': row['ChagesRatio']
+        }
+    print(f"✅ 총 {len(krx_dict):,}개 종목 주가 데이터 장전 완료!")
+except Exception as e:
+    print(f"⚠️ 주가 스캔 실패 (기존 방식으로 진행): {e}")
+    krx_dict = {}
+print("=========================================\n")
+
+
 all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
              if f.endswith(('.csv', '.xlsx', '.xls')) 
              and ("TIME" in f or "KoAct" in f) 
@@ -104,7 +129,7 @@ def read_etf_data(filepath):
         raise ValueError("종목명이나 비중 컬럼을 찾을 수 없습니다.")
 
 for etf_name, files_info in etf_groups.items():
-    print(f"▶️ [{etf_name}] 수량 추적 및 업로드 중...")
+    print(f"▶️ [{etf_name}] 수량/주가 추적 및 업로드 중...")
     
     files_info.sort(key=lambda x: x['date'])
     base_file = files_info[0]['file']
@@ -124,7 +149,10 @@ for etf_name, files_info in etf_groups.items():
         prev_qty = {} 
         is_first_day = True 
         
-        for info in files_info:
+        # 💡 반복문을 돌 때 '오늘이 가장 최신 파일(마지막 날)인지' 확인하기 위해 enumerate 사용!
+        for i, info in enumerate(files_info):
+            is_last_day = (i == len(files_info) - 1)
+            
             fpath = info['file']
             fdate = info['date']
             
@@ -146,16 +174,24 @@ for etf_name, files_info in etf_groups.items():
                     w = today_data[st_name][r_w_col]
                     q = today_data[st_name][r_q_col] if r_q_col else 0
                 else:
-                    w = 0
-                    q = 0
+                    w = 0; q = 0
                     
+                # 💡 [시즌 2 마법 패치] 최신 날짜(오늘)에만 주가/등락률 텍스트를 장착합니다!
+                price_str = ""
+                if is_last_day and krx_dict:
+                    p_info = krx_dict.get(st_name)
+                    if p_info:
+                        p = p_info.get('Close', 0)
+                        r = p_info.get('ChagesRatio', 0.0)
+                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
+                        
                 if is_first_day:
-                    diff_str = "-" 
+                    diff_str = f"-{price_str}" 
                 else:
                     diff = q - prev_qty.get(st_name, 0)
-                    if diff > 0: diff_str = f"🔴▲ {int(diff):,}"
-                    elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}"
-                    else: diff_str = "0"
+                    if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
+                    elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
+                    else: diff_str = f"0{price_str}"
                 
                 row_dict[st_name] = w
                 row_dict[f"{st_name}_증감"] = diff_str
@@ -176,7 +212,7 @@ for etf_name, files_info in etf_groups.items():
         
         out_name = f"통합완료_{etf_name}.csv"
         final_df.to_csv(os.path.join(current_folder, out_name), index=False, encoding='utf-8-sig')
-        print(f"   => 💾 PC 저장 (수량데이터 포함): {out_name}")
+        print(f"   => 💾 PC 저장 (수량/주가 데이터 포함): {out_name}")
         
         if google_connected:
             try:
@@ -190,15 +226,15 @@ for etf_name, files_info in etf_groups.items():
                 worksheet.clear()
                 worksheet.update(values=[final_df_gs.columns.values.tolist()] + final_df_gs.values.tolist(), range_name="A1")
                 print(f"   => 🌐 구글 시트 탭 업로드 성공!")
-                time.sleep(2) # 💡 구글 서버 과부하 방지 2초 휴식!
+                time.sleep(2) 
             except Exception as e:
                 print(f"   => ❌ 구글 시트 업로드 실패: {e}")
         
     except Exception as e:
         print(f"❌ 실패 [{etf_name}]: {e}")
 
-print("\n🎉 모든 수량 추적 공정이 완벽하게 완료되었습니다!")
+print("\n🎉 모든 수량/주가 추적 공정이 완벽하게 완료되었습니다!")
 try:
     input("엔터(Enter)를 누르면 창이 닫힙니다...")
 except EOFError:
-    pass # 💡 클라우드(키보드 없는 환경)에서는 에러 내지 말고 그냥 조용히 퇴근해!
+    pass
