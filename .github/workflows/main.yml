@@ -6,13 +6,19 @@ on:
     - cron: '35 22 * * 0-4' 
   workflow_dispatch: # 수동 실행 버튼
   push:
-    # 💡 [핵심 패치] 코드를 수정하거나 파일을 올려서 '업데이트(Push)'가 발생하면 즉시 자동으로 1번 실행됩니다!
+    # 💡 코드를 덮어쓰고 저장하는 즉시 로봇이 바로 1번 강제 출동합니다!
     branches:
       - main 
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    
+    # =====================================================================
+    # 💡 [핵심 패치] 깃허브 서버의 시계를 '한국 시간(KST)'으로 완벽 고정!
+    # =====================================================================
+    env:
+      TZ: Asia/Seoul
 
     steps:
     - name: 1. 내 저장소 파일 가져오기 (Checkout)
@@ -51,6 +57,6 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add *.xlsx *.xls *.png
+        git add *.xlsx *.xls *.png *.csv
         git commit -m "🤖 일일 수집 및 분석 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
         git push
