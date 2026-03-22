@@ -123,8 +123,13 @@ try:
                         else: final_name = f"{brand} {etf_name}_{date_koact}{ext}"
                             
                         final_path = os.path.join(target_dir, final_name)
-                        if os.path.exists(final_path): os.remove(final_path)
-                        shutil.move(new_file_path, final_path)
+                        
+                        # 💡 [핵심 에러 치료] 다운받은 파일 이름이 최종 이름과 다를 때만 덮어쓰기 진행!
+                        # (같으면 자기가 자기를 삭제하는 자폭 버그 원천 차단)
+                        if new_file_path != final_path:
+                            if os.path.exists(final_path): os.remove(final_path)
+                            shutil.move(new_file_path, final_path)
+                            
                         print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ")
                     else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.")
                 else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.")
@@ -135,7 +140,6 @@ finally:
     time.sleep(2)
     driver.quit()
 
-# 💡 [핵심 패치 1] 수집이 끝나면 찌꺼기 파일(1, 2, 3...)을 모조리 찾아내서 삭제합니다!
 print("\n🧹 찌꺼기 파일 청소 중...")
 for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
     fname = os.path.basename(f)
