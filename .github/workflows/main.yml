@@ -2,11 +2,9 @@ name: 아침 주도주 자동 수집 봇 (Daily 7:35 AM KST)
 
 on:
   schedule:
-    # 💡 UTC 기준 일~목 밤 10시 35분 = KST 기준 월~금 아침 7시 35분!
     - cron: '35 22 * * 0-4' 
-  workflow_dispatch: # 수동 실행 버튼
+  workflow_dispatch: 
   push:
-    # 💡 코드를 덮어쓰고 저장하는 즉시 로봇이 바로 1번 강제 출동합니다!
     branches:
       - main 
 
@@ -14,9 +12,6 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
     
-    # =====================================================================
-    # 💡 [핵심 패치] 깃허브 서버의 시계를 '한국 시간(KST)'으로 완벽 고정!
-    # =====================================================================
     env:
       TZ: Asia/Seoul
 
@@ -49,14 +44,12 @@ jobs:
       run: |
         python 일괄변환기.py
 
-    - name: 7. 매입 종목 입체 분석 그래프 생성
-      run: |
-        python 분석기.py
+    # 💡 [에러 해결] 필요 없는 '분석기.py' 실행 단계를 삭제했습니다! (분석은 app.py가 알아서 합니다)
 
-    - name: 8. 수집 데이터 및 분석 그래프 깃허브 영구 저장 (Commit & Push)
+    - name: 7. 수집 데이터 깃허브 영구 저장 (Commit & Push)
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add *.xlsx *.xls *.png *.csv
-        git commit -m "🤖 일일 수집 및 분석 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
+        git add *.xlsx *.xls *.csv
+        git commit -m "🤖 일일 수집 및 업로드 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
         git push
