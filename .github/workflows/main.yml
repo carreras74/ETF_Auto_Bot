@@ -1,10 +1,14 @@
-name: 아침 주도주 자동 수집 봇 (Daily 7 AM KST)
+name: 아침 주도주 자동 수집 봇 (Daily 7:35 AM KST)
 
 on:
   schedule:
-    # 💡 UTC 기준 일~목 밤 10시 = KST 기준 월~금 아침 7시!
-    - cron: '0 22 * * 0-4' 
+    # 💡 UTC 기준 일~목 밤 10시 35분 = KST 기준 월~금 아침 7시 35분!
+    - cron: '35 22 * * 0-4' 
   workflow_dispatch: # 수동 실행 버튼
+  push:
+    # 💡 [핵심 패치] 코드를 수정하거나 파일을 올려서 '업데이트(Push)'가 발생하면 즉시 자동으로 1번 실행됩니다!
+    branches:
+      - main 
 
 jobs:
   run-bot:
@@ -39,12 +43,10 @@ jobs:
       run: |
         python 일괄변환기.py
 
-    # 💡 [새로 추가된 단계] 변환이 끝나면 분석기를 돌려서 그래프를 그린다!
     - name: 7. 매입 종목 입체 분석 그래프 생성
       run: |
         python 분석기.py
 
-    # 💡 [수정된 부분] 엑셀 원본 파일과 함께 생성된 이미지(*.png)도 깃허브에 저장!
     - name: 8. 수집 데이터 및 분석 그래프 깃허브 영구 저장 (Commit & Push)
       run: |
         git config --global user.name "github-actions[bot]"
