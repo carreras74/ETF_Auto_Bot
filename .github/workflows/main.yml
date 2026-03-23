@@ -2,7 +2,7 @@ name: 아침 주도주 자동 수집 봇 (Daily 7:35 AM KST)
 
 on:
   schedule:
-    - cron: '35 22 * * 0-4' 
+    - cron: '15 22 * * 0-4' 
   workflow_dispatch: 
   push:
     branches:
