@@ -1,8 +1,8 @@
-name: 아침 주도주 자동 수집 봇 (Daily 7:35 AM KST)
-
 on:
   schedule:
-    - cron: '15 22 * * 0-4' 
+    # 💡 UTC 기준 일~목 밤 21시 50분 = KST 기준 월~금 아침 6시 50분!
+    # 깃허브 서버의 지각(딜레이) 현상을 역이용해서 아예 새벽에 미리 줄을 세워둡니다!
+    - cron: '50 21 * * 0-4' 
   workflow_dispatch: 
   push:
     branches:
