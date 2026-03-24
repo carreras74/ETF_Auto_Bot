@@ -54,7 +54,6 @@ task_list = [
 ]
 
 chrome_options = Options()
-# 💡 TIGER 보안을 뚫는 최신 투명 망토!
 chrome_options.add_argument('--headless=new') 
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
@@ -92,19 +91,20 @@ try:
             try:
                 try:
                     driver.get(room_url)
-                except Exception as e:
-                    print(f"⚠️ [{brand}] {etf_name} 로딩 지연! 강제 스크롤 시도...", flush=True)
+                except Exception:
                     driver.execute_script("window.stop();")
                 
                 before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
                 found_and_clicked = False
                 
                 if brand == "TIGER":
+                    # 💡 정밀 스크롤링 (로컬 성공 로직)
                     for step in range(1, 11):
                         driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
                         time.sleep(1)
                     time.sleep(2)
                     
+                    # 💡 자바스크립트 직접 타격 로직
                     for _ in range(15): 
                         clicked = driver.execute_script("""
                             var allDivs = Array.from(document.querySelectorAll('div, section, article'));
@@ -148,11 +148,11 @@ try:
                         """)
                         if clicked:
                             found_and_clicked = True
-                            print(f"📥 [{brand}] {etf_name} 엑셀 클릭 완료! (로컬 검증 로직 적용)", end="\r", flush=True)
+                            print(f"📥 [{brand}] {etf_name} 엑셀 클릭 완료!", end="\r", flush=True)
                             break
                         time.sleep(1)
                         
-                else: 
+                else: # TIME, KoAct
                     time.sleep(3)
                     driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
                     time.sleep(2)
@@ -175,14 +175,6 @@ try:
 
                 if found_and_clicked:
                     time.sleep(1)
-                    try:
-                        alert = driver.switch_to.alert
-                        alert.accept() 
-                        print(f"⚠️ [{brand}] {etf_name} 다운로드 스킵 (경고창 무시).", flush=True)
-                        continue 
-                    except:
-                        pass 
-                    
                     new_file_path = None
                     for _ in range(15):
                         time.sleep(1)
@@ -197,15 +189,11 @@ try:
                     if new_file_path:
                         ext = os.path.splitext(new_file_path)[1]
                         if brand == "TIME": final_name = f"구성종목(PDF){brand}{etf_name}_{date_time}{ext}"
-                        elif brand == "KoAct": final_name = f"{brand} {etf_name}_{date_koact}{ext}"
-                        elif brand == "TIGER": final_name = f"{brand} {etf_name}_{date_koact}{ext}"
+                        else: final_name = f"{brand} {etf_name}_{date_koact}{ext}"
                             
                         final_path = os.path.join(target_dir, final_name)
-                        
-                        if new_file_path != final_path:
-                            if os.path.exists(final_path): os.remove(final_path)
-                            shutil.move(new_file_path, final_path)
-                            
+                        if os.path.exists(final_path): os.remove(final_path)
+                        shutil.move(new_file_path, final_path)
                         print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ", flush=True)
                     else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.", flush=True)
                 else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.", flush=True)
@@ -213,17 +201,13 @@ try:
             time.sleep(2)
 
 finally:
-    time.sleep(2)
     driver.quit()
 
 print("\n🧹 찌꺼기 파일 청소 중...", flush=True)
 for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")) + glob.glob(os.path.join(target_dir, "*.csv")):
     fname = os.path.basename(f)
-    if "TIME" not in fname and "KoAct" not in fname and "TIGER" not in fname:
-        try:
-            os.remove(f)
-            print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}", flush=True)
-        except Exception:
-            pass
+    if not any(x in fname for x in ["TIME", "KoAct", "TIGER"]):
+        try: os.remove(f)
+        except: pass
 
 print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
