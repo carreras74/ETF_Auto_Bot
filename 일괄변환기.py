@@ -1,229 +1,274 @@
 import os
+import sys
+import subprocess
 import time
+
+def install_package(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+try: import xlrd
+except ImportError: install_package("xlrd")
+
+try: import lxml
+except ImportError: install_package("lxml")
+
+try: import gspread
+except ImportError:
+    install_package("gspread")
+    import gspread
+
+try: import FinanceDataReader as fdr
+except ImportError:
+    install_package("finance-datareader")
+    import FinanceDataReader as fdr
+
+import pandas as pd
 import glob
-import shutil
-from datetime import datetime
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
+import re
 
-target_dir = os.path.dirname(os.path.abspath(__file__))
-download_dir = target_dir
+try: current_folder = os.path.dirname(os.path.abspath(__file__))
+except: current_folder = os.getcwd()
 
-date_time = datetime.now().strftime("%Y-%m-%d") 
-date_koact = datetime.now().strftime("%Y%m%d")  
+print(f"📂 작업 폴더: {current_folder}")
+print("🚀 [비중 + 수량증감 + 주가 추적 모터] 시즌3 (TIGER 멀티테이블 격파) 실행 중...\n")
 
-print(f"📍 작업 위치: {target_dir}", flush=True)
-print(f"📅 TIME 날짜: {date_time} / KoAct, TIGER 날짜: {date_koact}\n", flush=True)
-
-time_rooms = {
-    "코스닥액티브": "https://timeetf.co.kr/m11_view.php?idx=24&cate=002",
-    "플러스배당액티브": "https://timeetf.co.kr/m11_view.php?idx=12&cate=002",
-    "코스피액티브": "https://timeetf.co.kr/m11_view.php?idx=11&cate=002",
-    "밸류업액티브": "https://timeetf.co.kr/m11_view.php?idx=15&cate=002",
-    "신재생에너지액티브": "https://timeetf.co.kr/m11_view.php?idx=16&cate=002",
-    "바이오액티브": "https://timeetf.co.kr/m11_view.php?idx=13&cate=002",
-    "이노베이션액티브": "https://timeetf.co.kr/m11_view.php?idx=17&cate=002",
-    "컬처액티브": "https://timeetf.co.kr/m11_view.php?idx=1&cate=002"
-}
-
-koact_rooms = {
-    "배당성장액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFM2",
-    "수소전력ESS인프라액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFT9",
-    "바이오헬스케어액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFJ9",
-    "코리아밸류업액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFP3",
-    "K수출핵심기업TOP30액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFR6",
-    "AI인프라액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFN8",
-    "반도체2차전지핵심소재액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFM8",
-    "코스닥액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFU6"
-}
-
-tiger_rooms = {
-    "코리아테크액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007",
-    "AI코리아그로스액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7365040005",
-    "퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7387280001",
-    "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
-}
-
-# 💡 테스트 효율을 위해 TIGER 1순위 유지
-task_list = [
-    {"brand": "TIGER", "etfs": tiger_rooms},
-    {"brand": "TIME", "etfs": time_rooms},
-    {"brand": "KoAct", "etfs": koact_rooms}
-]
-
-chrome_options = Options()
-chrome_options.add_argument('--no-sandbox')
-chrome_options.add_argument('--disable-dev-shm-usage')
-chrome_options.add_argument('--window-size=1920x1080')
-chrome_options.add_argument('--log-level=3')
-chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-
-chrome_options.add_experimental_option("prefs", {
-    "download.default_directory": download_dir,
-    "download.prompt_for_download": False,
-    "download.directory_upgrade": True,
-    "safebrowsing.enabled": True, 
-    "profile.default_content_setting_values.automatic_downloads": 1 
-})
-
-driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-    "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
-})
-
-driver.set_page_load_timeout(45) # 💡 [안정화 패치] 사이트 로딩 대기 시간도 30초에서 45초로 연장!
-
+print("=========================================")
+print("🌐 구글 시트 접속을 시도합니다...")
 try:
-    print("🚀 [수집기 가동] 시각화 모드 (총 20개 완전체) 시작!", flush=True)
+    gc = gspread.service_account(filename=os.path.join(current_folder, 'google_key.json'))
+    SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit?gid=1831966955#gid=1831966955' 
+    sh = gc.open_by_url(SHEET_URL)
+    
+    google_connected = True
+    print(f"✅ 구글 시트 접속 완료! 문이 열렸습니다.")
+except Exception as e:
+    print(f"⚠️ 구글 접속 실패: {e}")
+    google_connected = False
+print("=========================================\n")
 
-    for task in task_list:
-        brand = task["brand"]
-        rooms = task["etfs"]
-        print(f"\n=========================================", flush=True)
-        print(f"🏢 [{brand}] 운용사 포트폴리오 추출 시작...", flush=True)
-        
-        for etf_name, room_url in rooms.items():
-            try:
-                try:
-                    driver.get(room_url)
-                except Exception as e:
-                    print(f"⚠️ [{brand}] {etf_name} 로딩 지연! 강제 스크롤 시도...", flush=True)
-                    driver.execute_script("window.stop();")
-                
-                before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                found_and_clicked = False
-                
-                if brand == "TIGER":
-                    # 💡 [안정화 패치 1] 스크롤을 15단계로 쪼개고, 1초씩 확실하게 쉬면서 인터넷이 느려도 표가 100% 뜨게 만듭니다!
-                    for step in range(1, 16):
-                        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/15));")
-                        time.sleep(1) 
-                    time.sleep(3)
-                    
-                    # 💡 [안정화 패치 2] 탐색 시간도 15회에서 25회(25초)로 대폭 늘렸습니다.
-                    for _ in range(25): 
-                        clicked = driver.execute_script("""
-                            var allDivs = Array.from(document.querySelectorAll('div, section, article'));
-                            var targetSection = null;
-                            
-                            for (var i = 0; i < allDivs.length; i++) {
-                                var txt = allDivs[i].innerText || allDivs[i].textContent;
-                                if (txt && txt.includes('자산구성(구성종목 PDF)')) {
-                                    targetSection = allDivs[i];
-                                    break;
-                                }
-                            }
-                            
-                            if (targetSection) {
-                                var btns = Array.from(targetSection.querySelectorAll('a, button, span'));
-                                var excelBtn = btns.find(function(b) {
-                                    var bTxt = b.innerText || b.textContent;
-                                    return bTxt && bTxt.replace(/\\s+/g, '').includes('엑셀다운로드') && b.offsetWidth > 0;
-                                });
-                                
-                                if (excelBtn) {
-                                    excelBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
-                                    excelBtn.click();
-                                    return true;
-                                }
-                            }
-                            
-                            var fallbackBtns = Array.from(document.querySelectorAll('a, button, span')).filter(function(el) {
-                                var txt = el.innerText || el.textContent;
-                                return txt && txt.replace(/\\s+/g, '').includes('엑셀다운로드') && el.offsetWidth > 0;
-                            });
-                            
-                            if (fallbackBtns.length > 0) {
-                                var lastBtn = fallbackBtns[fallbackBtns.length - 1];
-                                lastBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
-                                lastBtn.click();
-                                return true;
-                            }
-                            
-                            return false;
-                        """)
-                        if clicked:
-                            found_and_clicked = True
-                            print(f"📥 [{brand}] {etf_name} 자산구성 엑셀 클릭 완료!", end="\r", flush=True)
-                            break
-                        time.sleep(1)
-                        
-                else: 
-                    time.sleep(3)
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
-                    time.sleep(2)
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(3)
-                    
-                    xpath_excel = (
-                        "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
-                        "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')] | "
-                        "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel')]/parent::a"
-                    )
-                    excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
-                    if excel_buttons:
-                        target_button = excel_buttons[-1] 
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
-                        time.sleep(1.5)
-                        driver.execute_script("arguments[0].click();", target_button)
-                        found_and_clicked = True
-                        print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료!", end="\r", flush=True)
+print("=========================================")
+print("📈 한국거래소(KRX) 전체 주가/등락률 초고속 스캔 중...")
+try:
+    krx_df = fdr.StockListing('KRX')
+    krx_dict = {}
+    for _, row in krx_df.iterrows():
+        krx_dict[str(row['Name']).strip()] = {
+            'Close': row['Close'],
+            'ChagesRatio': row['ChagesRatio']
+        }
+    print(f"✅ 총 {len(krx_dict):,}개 종목 주가 데이터 장전 완료!")
+except Exception as e:
+    print(f"⚠️ 주가 스캔 실패 (기존 방식으로 진행): {e}")
+    krx_dict = {}
+print("=========================================\n")
 
-                if found_and_clicked:
-                    time.sleep(1)
-                    try:
-                        alert = driver.switch_to.alert
-                        alert.accept() 
-                        print(f"⚠️ [{brand}] {etf_name} 다운로드 스킵 (경고창 무시).", flush=True)
-                        continue 
-                    except:
-                        pass 
-                    
-                    new_file_path = None
-                    for _ in range(15):
-                        time.sleep(1)
-                        after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                        new_files = after_files - before_files
-                        excel_files = [f for f in new_files if (f.endswith('.xlsx') or f.endswith('.xls') or f.endswith('.csv')) and not f.endswith('.crdownload') and not f.endswith('.tmp')]
-                        
-                        if excel_files:
-                            new_file_path = list(excel_files)[0]
-                            break
-                    
-                    if new_file_path:
-                        ext = os.path.splitext(new_file_path)[1]
-                        if brand == "TIME": final_name = f"구성종목(PDF){brand}{etf_name}_{date_time}{ext}"
-                        elif brand == "KoAct": final_name = f"{brand} {etf_name}_{date_koact}{ext}"
-                        elif brand == "TIGER": final_name = f"{brand} {etf_name}_{date_koact}{ext}"
-                            
-                        final_path = os.path.join(target_dir, final_name)
-                        
-                        if new_file_path != final_path:
-                            if os.path.exists(final_path): os.remove(final_path)
-                            shutil.move(new_file_path, final_path)
-                            
-                        print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ", flush=True)
-                    else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.", flush=True)
-                else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.", flush=True)
-            except Exception as e: print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}", flush=True)
-            time.sleep(2)
+all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
+             if f.endswith(('.csv', '.xlsx', '.xls')) 
+             and any(brand in f for brand in ["TIME", "KoAct", "TIGER"]) 
+             and "30일추적" not in f 
+             and "변환완료" not in f
+             and "통합완료" not in f]
 
-finally:
-    time.sleep(2)
-    driver.quit()
+if not all_files:
+    print("❌ 폴더에 원본 파일이 없습니다.")
+    try: input("엔터를 누르면 종료됩니다...")
+    except: pass
+    exit()
 
-print("\n🧹 찌꺼기 파일 청소 중...", flush=True)
-for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")) + glob.glob(os.path.join(target_dir, "*.csv")):
+etf_groups = {}
+for f in all_files:
     fname = os.path.basename(f)
-    if "TIME" not in fname and "KoAct" not in fname and "TIGER" not in fname:
-        try: 
-            os.remove(f)
-            print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}", flush=True)
-        except: pass
+    date_match = re.search(r'(\d{4}-\d{2}-\d{2}|\d{8})', fname)
+    if not date_match: continue
+    raw_date = date_match.group()
+    
+    if len(raw_date) == 8: file_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+    else: file_date = raw_date
+        
+    etf_name = re.sub(r'구성종목|PDF|기준\s*가격|\d{4}-\d{2}-\d{2}|\d{8}|\.xlsx|\.csv|\.xls|[()_\-\s]', '', fname).strip()
+    
+    if etf_name not in etf_groups: etf_groups[etf_name] = []
+    etf_groups[etf_name].append({'file': f, 'date': file_date})
 
-print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
+def read_etf_data(filepath):
+    df_list = []
+    if filepath.endswith('.csv'):
+        try: df_list = [pd.read_csv(filepath, encoding='utf-8-sig', header=None)]
+        except: df_list = [pd.read_csv(filepath, encoding='cp949', header=None)]
+    else:
+        try: 
+            # 진짜 엑셀인 경우
+            df_list = [pd.read_excel(filepath, header=None)]
+        except:
+            # 💡 [핵심 패치 1] 가짜 엑셀(HTML)인 경우, 파일 안에 있는 '모든 표'를 다 가져옵니다!
+            try: raw_dfs = pd.read_html(filepath, encoding='utf-8')
+            except:
+                try: raw_dfs = pd.read_html(filepath, encoding='cp949')
+                except: raw_dfs = []
+                
+            for d in raw_dfs:
+                if isinstance(d.columns, pd.MultiIndex):
+                    d.columns = ['_'.join(map(str, col)).strip() for col in d.columns.values]
+                cols = pd.DataFrame([d.columns.values.tolist()])
+                d.columns = range(d.shape[1])
+                cols.columns = range(cols.shape[1])
+                merged = pd.concat([cols, d], ignore_index=True)
+                df_list.append(merged)
+                
+    if not df_list:
+        try: df_list = [pd.read_csv(filepath, encoding='utf-8-sig', header=None)]
+        except: df_list = [pd.read_csv(filepath, encoding='cp949', header=None)]
+
+    if not df_list:
+        raise ValueError("파일 안의 표를 해독할 수 없습니다.")
+
+    target_df = None
+    header_idx = -1
+    
+    # 💡 [핵심 패치 2] 가져온 여러 개의 표를 하나씩 열어보면서 '종목'과 '비중'이 있는 진짜 표만 찾습니다!
+    for temp_df in df_list:
+        for i, row in temp_df.iterrows():
+            row_strs = [str(x).replace(' ', '') for x in row.values]
+            if (any('종목' in s or '자산' in s or '명' in s for s in row_strs) and 
+                any('비중' in s or '비율' in s or 'Weight' in s for s in row_strs)):
+                target_df = temp_df
+                header_idx = i
+                break
+        if target_df is not None:
+            break
+            
+    if target_df is None:
+        raise ValueError(f"컬럼을 찾을 수 없습니다. (발견된 기둥들: {list(df_list[0].iloc[0]) if df_list else '없음'})")
+        
+    df = target_df
+    df.columns = df.iloc[header_idx]
+    df = df.iloc[header_idx+1:].reset_index(drop=True)
+    df.columns = [str(c).replace(' ', '').replace('\n', '') for c in df.columns]
+    
+    n_col = next((c for c in df.columns if '종목' in c or '자산' in c or '명' in c), None)
+    w_col = next((c for c in df.columns if '비중' in c or '비율' in c), None)
+    q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수', '주수'])), None)
+    
+    if n_col and w_col:
+        # TIGER 원화예금, 예수금 등 잡다한 찌꺼기 완벽 차단!
+        df = df[~df[n_col].astype(str).str.contains('원화현금|예수금|원화예금|KRW', na=False, case=False)]
+        
+        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(',', '').str.replace('%', ''), errors='coerce').fillna(0)
+        if df[w_col].sum() <= 2.0: df[w_col] = df[w_col] * 100
+        df[w_col] = df[w_col].round(2)
+        
+        if q_col:
+            df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            
+        return df, n_col, w_col, q_col
+    else:
+        raise ValueError("n_col 또는 w_col을 찾지 못했습니다.")
+
+for etf_name, files_info in etf_groups.items():
+    print(f"▶️ [{etf_name}] 수량/주가 추적 및 업로드 중...")
+    
+    files_info.sort(key=lambda x: x['date'])
+    base_file = files_info[0]['file']
+    
+    try:
+        b_df, n_col, w_col, q_col = read_etf_data(base_file)
+        
+        b_df = b_df[b_df[n_col].astype(str).str.strip() != '']
+        b_df = b_df[b_df[n_col].astype(str).str.lower() != 'nan']
+        b_df = b_df.dropna(subset=[n_col])
+        
+        first_day_top20 = b_df.sort_values(by=w_col, ascending=False).head(20)
+        standard_cols = first_day_top20[n_col].tolist()
+        
+        all_rows = []
+        historical_new_cols = []
+        prev_qty = {} 
+        is_first_day = True 
+        
+        for i, info in enumerate(files_info):
+            is_last_day = (i == len(files_info) - 1)
+            
+            fpath = info['file']
+            fdate = info['date']
+            
+            r_df, r_n_col, r_w_col, r_q_col = read_etf_data(fpath)
+            r_df = r_df[r_df[r_n_col].astype(str).str.strip() != '']
+            r_df = r_df.dropna(subset=[r_n_col])
+            
+            today_top20 = r_df.sort_values(by=r_w_col, ascending=False).head(20)
+            
+            for st_name in today_top20[r_n_col]:
+                if st_name not in standard_cols and st_name not in historical_new_cols:
+                    historical_new_cols.append(st_name)
+                    
+            row_dict = {'Date': fdate}
+            today_data = r_df.set_index(r_n_col).to_dict('index')
+            
+            for st_name in standard_cols + historical_new_cols:
+                if st_name in today_data:
+                    w = today_data[st_name][r_w_col]
+                    q = today_data[st_name][r_q_col] if r_q_col else 0
+                else:
+                    w = 0; q = 0
+                    
+                price_str = ""
+                if is_last_day and krx_dict:
+                    p_info = krx_dict.get(st_name)
+                    if p_info:
+                        p = p_info.get('Close', 0)
+                        r = p_info.get('ChagesRatio', 0.0)
+                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
+                        
+                if is_first_day:
+                    diff_str = f"-{price_str}" 
+                else:
+                    diff = q - prev_qty.get(st_name, 0)
+                    if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
+                    elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
+                    else: diff_str = f"0{price_str}"
+                
+                row_dict[st_name] = w
+                row_dict[f"{st_name}_증감"] = diff_str
+                
+            if r_q_col:
+                for st_name, row_data in today_data.items():
+                    prev_qty[st_name] = row_data[r_q_col]
+                    
+            all_rows.append(row_dict)
+            is_first_day = False
+            
+        final_cols = ['Date']
+        for col in standard_cols + historical_new_cols:
+            final_cols.append(col)
+            final_cols.append(f"{col}_증감")
+            
+        final_df = pd.DataFrame(all_rows, columns=final_cols)
+        
+        out_name = f"통합완료_{etf_name}.csv"
+        final_df.to_csv(os.path.join(current_folder, out_name), index=False, encoding='utf-8-sig')
+        print(f"   => 💾 PC 저장 (수량/주가 데이터 포함): {out_name}")
+        
+        if google_connected:
+            try:
+                existing_sheets = [ws.title for ws in sh.worksheets()]
+                if etf_name in existing_sheets:
+                    worksheet = sh.worksheet(etf_name)
+                else:
+                    worksheet = sh.add_worksheet(title=etf_name, rows="1000", cols="100")
+                
+                final_df_gs = final_df.fillna("")
+                worksheet.clear()
+                worksheet.update(values=[final_df_gs.columns.values.tolist()] + final_df_gs.values.tolist(), range_name="A1")
+                print(f"   => 🌐 구글 시트 탭 업로드 성공!")
+                time.sleep(2) 
+            except Exception as e:
+                print(f"   => ❌ 구글 시트 업로드 실패: {e}")
+        
+    except Exception as e:
+        print(f"❌ 실패 [{etf_name}]: {e}")
+
+print("\n🎉 모든 수량/주가 추적 공정이 완벽하게 완료되었습니다!")
+try:
+    input("엔터(Enter)를 누르면 창이 닫힙니다...")
+except EOFError:
+    pass
