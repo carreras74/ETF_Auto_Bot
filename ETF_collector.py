@@ -15,7 +15,9 @@ download_dir = target_dir
 date_time = datetime.now().strftime("%Y-%m-%d") 
 date_koact = datetime.now().strftime("%Y%m%d")  
 
-# --- 안정적인 16개 종목 리스트 ---
+print(f"📍 작업 위치: {target_dir}")
+print(f"📅 TIME 날짜: {date_time} / KoAct 날짜: {date_koact}\n")
+
 time_rooms = {
     "코스닥액티브": "https://timeetf.co.kr/m11_view.php?idx=24&cate=002",
     "플러스배당액티브": "https://timeetf.co.kr/m11_view.php?idx=12&cate=002",
@@ -26,6 +28,7 @@ time_rooms = {
     "이노베이션액티브": "https://timeetf.co.kr/m11_view.php?idx=17&cate=002",
     "컬처액티브": "https://timeetf.co.kr/m11_view.php?idx=1&cate=002"
 }
+
 koact_rooms = {
     "배당성장액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFM2",
     "수소전력ESS인프라액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFT9",
@@ -43,49 +46,107 @@ task_list = [
 ]
 
 chrome_options = Options()
-chrome_options.add_argument('--headless=new')
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--window-size=1920x1080')
+chrome_options.add_argument('--log-level=3')
+chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+
 chrome_options.add_experimental_option("prefs", {
     "download.default_directory": download_dir,
     "download.prompt_for_download": False,
+    "download.directory_upgrade": True,
+    "safebrowsing.enabled": True, 
     "profile.default_content_setting_values.automatic_downloads": 1 
 })
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+    "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
+})
 
 try:
-    print(f"🚀 [TIME/KoAct 전용] 안정 수집 시작!", flush=True)
+    print("🚀 [수집기 가동] 시각화 모드 (16개 완전체) 시작!")
+
     for task in task_list:
         brand = task["brand"]
-        for etf_name, room_url in task["etfs"].items():
+        rooms = task["etfs"]
+        print(f"\n=========================================")
+        print(f"🏢 [{brand}] 운용사 포트폴리오 추출 시작...")
+        
+        for etf_name, room_url in rooms.items():
             try:
                 driver.get(room_url)
-                time.sleep(4)
-                before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
+                time.sleep(5) 
                 
-                # 💡 검증된 스크롤 및 클릭 로직
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
-                time.sleep(2)
-                xpath = "//a[contains(., '엑셀')] | //button[contains(., '엑셀')] | //a[contains(@class, 'excel')]"
-                btns = driver.find_elements(By.XPATH, xpath)
+                xpath_excel = (
+                    "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
+                    "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')] | "
+                    "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel')]/parent::a"
+                )
                 
-                if btns:
-                    driver.execute_script("arguments[0].click();", btns[-1])
-                    time.sleep(5)
-                    after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                    new_files = list(after_files - before_files)
-                    if new_files:
-                        old_path = new_files[0]
-                        ext = os.path.splitext(old_path)[1]
-                        final_name = f"구성종목(PDF){brand}{etf_name}_{date_time}{ext}" if brand == "TIME" else f"{brand} {etf_name}_{date_koact}{ext}"
+                excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
+                if excel_buttons:
+                    target_button = excel_buttons[-1] 
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
+                    time.sleep(1.5)
+                    
+                    before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
+                    driver.execute_script("arguments[0].click();", target_button)
+                    print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료!", end="\r")
+                    
+                    time.sleep(1)
+                    try:
+                        alert = driver.switch_to.alert
+                        alert.accept() 
+                        print(f"⚠️ [{brand}] {etf_name} 다운로드 스킵 (경고창 무시).")
+                        continue 
+                    except:
+                        pass 
+                    
+                    new_file_path = None
+                    for _ in range(15):
+                        time.sleep(1)
+                        after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
+                        new_files = after_files - before_files
+                        excel_files = [f for f in new_files if (f.endswith('.xlsx') or f.endswith('.xls') or f.endswith('.csv')) and not f.endswith('.crdownload') and not f.endswith('.tmp')]
+                        
+                        if excel_files:
+                            new_file_path = list(excel_files)[0]
+                            break
+                    
+                    if new_file_path:
+                        ext = os.path.splitext(new_file_path)[1]
+                        if brand == "TIME": final_name = f"구성종목(PDF){brand}{etf_name}_{date_time}{ext}"
+                        else: final_name = f"{brand} {etf_name}_{date_koact}{ext}"
+                            
                         final_path = os.path.join(target_dir, final_name)
-                        if os.path.exists(final_path): os.remove(final_path)
-                        shutil.move(old_path, final_path)
-                        print(f"  ✅ {brand} {etf_name} 수집 성공!", flush=True)
-            except Exception as e:
-                print(f"  ⚠️ {etf_name} 에러: {e}", flush=True)
+                        
+                        # 💡 [핵심 에러 치료] 다운받은 파일 이름이 최종 이름과 다를 때만 덮어쓰기 진행!
+                        # (같으면 자기가 자기를 삭제하는 자폭 버그 원천 차단)
+                        if new_file_path != final_path:
+                            if os.path.exists(final_path): os.remove(final_path)
+                            shutil.move(new_file_path, final_path)
+                            
+                        print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ")
+                    else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.")
+                else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.")
+            except Exception as e: print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}")
+            time.sleep(2)
+
 finally:
+    time.sleep(2)
     driver.quit()
-    print("\n✨ 수집 공정 완료!", flush=True)
+
+print("\n🧹 찌꺼기 파일 청소 중...")
+for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
+    fname = os.path.basename(f)
+    if "TIME" not in fname and "KoAct" not in fname:
+        try: 
+            os.remove(f)
+            print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}")
+        except: pass
+
+print("\n✨ 16개 ETF 수집 및 청소 공정 완벽 종료!")
