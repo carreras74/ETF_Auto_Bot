@@ -7,6 +7,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 
 target_dir = os.path.dirname(os.path.abspath(__file__))
@@ -47,7 +48,7 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 테스트를 위해 TIGER 선봉 유지!
+# 테스트 속도를 위해 TIGER 선봉 유지
 task_list = [
     {"brand": "TIGER", "etfs": tiger_rooms},
     {"brand": "TIME", "etfs": time_rooms},
@@ -76,7 +77,7 @@ driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
 })
 
-driver.set_page_load_timeout(30)
+driver.set_page_load_timeout(45)
 
 try:
     print("🚀 [수집기 가동] 시각화 모드 (총 20개 완전체) 시작!", flush=True)
@@ -98,61 +99,46 @@ try:
                 before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
                 found_and_clicked = False
                 
-                # 💡 [핵심 패치] TIGER 전용 '자산구성' 섹션 내 엑셀 버튼만 저격!
                 if brand == "TIGER":
-                    # 1. 끈질기게 스크롤을 끝까지 내려서 모든 표를 띄웁니다.
+                    # 💡 [스크롤 조지기] 위아래로 흔들어서 깃허브 서버가 무조건 렌더링하게 만듭니다.
                     for step in range(1, 11):
                         driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
-                        time.sleep(0.5)
+                        time.sleep(1)
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.7);")
                     time.sleep(2)
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(3)
                     
-                    # 2. '자산구성(구성종목 PDF)' 이라는 제목을 가진 섹션을 찾고, 그 섹션 안에 있는 엑셀다운로드를 클릭!
-                    for _ in range(15): 
+                    # 💡 [핵심 패치] offsetWidth(눈에 보이는지 체크) 완전 삭제! 숨어있어도 멱살 잡고 누릅니다.
+                    for _ in range(20): 
                         clicked = driver.execute_script("""
-                            // 1. 화면에 있는 모든 컨테이너(div, section 등)를 다 뒤져서 '자산구성' 글자가 있는 블록을 찾음
-                            var allDivs = Array.from(document.querySelectorAll('div, section, article'));
-                            var targetSection = null;
+                            // 모든 '엑셀다운로드' 텍스트를 가진 태그를 싹싹 긁어모읍니다. (가상 화면 체크 무시)
+                            var allBtns = Array.from(document.querySelectorAll('a, button, span, div')).filter(function(el) {
+                                var txt = el.innerText || el.textContent || "";
+                                return txt.replace(/\\s+/g, '').includes('엑셀다운로드');
+                            });
                             
-                            for (var i = 0; i < allDivs.length; i++) {
-                                var txt = allDivs[i].innerText || allDivs[i].textContent;
-                                if (txt && txt.includes('자산구성(구성종목 PDF)')) {
-                                    targetSection = allDivs[i];
-                                    break;
-                                }
-                            }
-                            
-                            if (targetSection) {
-                                // 2. 그 '자산구성' 블록 안에서만 '엑셀다운로드' 버튼을 찾음 (가짜 버튼들 완벽 차단!)
-                                var btns = Array.from(targetSection.querySelectorAll('a, button, span'));
-                                var excelBtn = btns.find(function(b) {
-                                    var bTxt = b.innerText || b.textContent;
-                                    return bTxt && bTxt.replace(/\\s+/g, '').includes('엑셀다운로드') && b.offsetWidth > 0;
-                                });
-                                
-                                if (excelBtn) {
-                                    excelBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
-                                    excelBtn.click();
+                            if (allBtns.length > 0) {
+                                // 1순위: 대표님이 짚어주신 '3번째' 버튼 타격
+                                if (allBtns.length >= 3) {
+                                    var target = allBtns[2];
+                                    target.scrollIntoView({block: 'center'});
+                                    target.click();
+                                    return true;
+                                } 
+                                // 2순위: 3개가 안되면 무조건 '맨 마지막(바닥)' 놈 타격
+                                else {
+                                    var target = allBtns[allBtns.length - 1];
+                                    target.scrollIntoView({block: 'center'});
+                                    target.click();
                                     return true;
                                 }
                             }
-                            // 혹시 구조가 달라서 위 방식이 실패하면, 무식하게 화면 맨 마지막에 있는 엑셀을 클릭하는 플랜 B
-                            var fallbackBtns = Array.from(document.querySelectorAll('a, button, span')).filter(function(el) {
-                                var txt = el.innerText || el.textContent;
-                                return txt && txt.replace(/\\s+/g, '').includes('엑셀다운로드') && el.offsetWidth > 0;
-                            });
-                            
-                            if (fallbackBtns.length > 0) {
-                                var lastBtn = fallbackBtns[fallbackBtns.length - 1];
-                                lastBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
-                                lastBtn.click();
-                                return true;
-                            }
-                            
                             return false;
                         """)
                         if clicked:
                             found_and_clicked = True
-                            print(f"📥 [{brand}] {etf_name} 자산구성 엑셀 클릭 완료!", end="\r", flush=True)
+                            print(f"📥 [{brand}] {etf_name} 자산구성 엑셀 강제 클릭 완료!", end="\r", flush=True)
                             break
                         time.sleep(1)
                         
@@ -227,6 +213,9 @@ for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(
         try: 
             os.remove(f)
             print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}", flush=True)
+        except: pass
+
+print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
         except: pass
 
 print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
