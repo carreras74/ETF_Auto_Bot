@@ -16,7 +16,7 @@ date_time = datetime.now().strftime("%Y-%m-%d")
 date_koact = datetime.now().strftime("%Y%m%d")  
 
 print(f"📍 작업 위치: {target_dir}")
-print(f"📅 TIME 날짜: {date_time} / KoAct 날짜: {date_koact}\n")
+print(f"📅 TIME 날짜: {date_time} / KoAct, TIGER 날짜: {date_koact}\n")
 
 time_rooms = {
     "코스닥액티브": "https://timeetf.co.kr/m11_view.php?idx=24&cate=002",
@@ -40,9 +40,19 @@ koact_rooms = {
     "코스닥액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFU6"
 }
 
+# 💡 [TIGER 추가] 대표님이 찾아오신 미래에셋 주소록 완벽 장착!
+tiger_rooms = {
+    "코리아테크액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007",
+    "AI코리아그로스액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7365040005",
+    "퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7387280001",
+    "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
+}
+
+# 💡 [TIGER 출격 대기] 총 20개 ETF 군단 완성!
 task_list = [
     {"brand": "TIME", "etfs": time_rooms},
-    {"brand": "KoAct", "etfs": koact_rooms}
+    {"brand": "KoAct", "etfs": koact_rooms},
+    {"brand": "TIGER", "etfs": tiger_rooms}
 ]
 
 chrome_options = Options()
@@ -68,7 +78,7 @@ driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
 })
 
 try:
-    print("🚀 [수집기 가동] 시각화 모드 (16개 완전체) 시작!")
+    print("🚀 [수집기 가동] 시각화 모드 (총 20개 완전체) 시작!")
 
     for task in task_list:
         brand = task["brand"]
@@ -81,10 +91,11 @@ try:
                 driver.get(room_url)
                 time.sleep(5) 
                 
+                # 💡 [핵심 패치] TIGER 사이트의 엑셀/CSV 버튼까지 모조리 잡아내는 만능 돋보기!
                 xpath_excel = (
-                    "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
-                    "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')] | "
-                    "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel')]/parent::a"
+                    "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(text(), 'CSV') or contains(@class, 'csv') or contains(@href, 'excel')] | "
+                    "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(text(), 'CSV')] | "
+                    "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel') or contains(@alt, 'CSV')]/parent::a"
                 )
                 
                 excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
@@ -119,13 +130,14 @@ try:
                     
                     if new_file_path:
                         ext = os.path.splitext(new_file_path)[1]
+                        
+                        # 💡 TIGER 파일 이름 규칙 추가
                         if brand == "TIME": final_name = f"구성종목(PDF){brand}{etf_name}_{date_time}{ext}"
-                        else: final_name = f"{brand} {etf_name}_{date_koact}{ext}"
+                        elif brand == "KoAct": final_name = f"{brand} {etf_name}_{date_koact}{ext}"
+                        elif brand == "TIGER": final_name = f"{brand} {etf_name}_{date_koact}{ext}"
                             
                         final_path = os.path.join(target_dir, final_name)
                         
-                        # 💡 [핵심 에러 치료] 다운받은 파일 이름이 최종 이름과 다를 때만 덮어쓰기 진행!
-                        # (같으면 자기가 자기를 삭제하는 자폭 버그 원천 차단)
                         if new_file_path != final_path:
                             if os.path.exists(final_path): os.remove(final_path)
                             shutil.move(new_file_path, final_path)
@@ -141,12 +153,13 @@ finally:
     driver.quit()
 
 print("\n🧹 찌꺼기 파일 청소 중...")
-for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
+for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")) + glob.glob(os.path.join(target_dir, "*.csv")):
     fname = os.path.basename(f)
-    if "TIME" not in fname and "KoAct" not in fname:
+    # 💡 청소부가 TIGER 파일은 버리지 않도록 등록
+    if "TIME" not in fname and "KoAct" not in fname and "TIGER" not in fname:
         try: 
             os.remove(f)
             print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}")
         except: pass
 
-print("\n✨ 16개 ETF 수집 및 청소 공정 완벽 종료!")
+print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!")
