@@ -7,7 +7,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys  # 💡 [핵심] 키보드 입력 모듈 추가!
 from webdriver_manager.chrome import ChromeDriverManager
 
 target_dir = os.path.dirname(os.path.abspath(__file__))
@@ -48,7 +48,7 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 테스트 속도를 위해 TIGER 선봉 유지
+# 테스트 속도를 위해 TIGER 선봉 유지!
 task_list = [
     {"brand": "TIGER", "etfs": tiger_rooms},
     {"brand": "TIME", "etfs": time_rooms},
@@ -100,45 +100,37 @@ try:
                 found_and_clicked = False
                 
                 if brand == "TIGER":
-                    # 💡 스크롤을 10단계로 쪼개고, 1초씩 확실하게 쉬면서 인터넷이 느려도 표가 100% 뜨게 만듭니다!
-                    for step in range(1, 11):
-                        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
-                        time.sleep(1)
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.7);")
+                    # 💡 [핵심 패치 1] 자바스크립트 스크롤 대신 '진짜 키보드 Page Down' 키를 연타합니다!
+                    body = driver.find_element(By.TAG_NAME, 'body')
+                    for _ in range(15):
+                        body.send_keys(Keys.PAGE_DOWN)
+                        time.sleep(1) # 사람이 읽는 것처럼 1초씩 쉬면서 내립니다.
                     time.sleep(2)
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(3)
                     
-                    # 💡 offsetWidth(눈에 보이는지 체크) 완전 삭제! 숨어있어도 멱살 잡고 누릅니다.
-                    for _ in range(20): 
-                        clicked = driver.execute_script("""
-                            var allBtns = Array.from(document.querySelectorAll('a, button, span, div')).filter(function(el) {
-                                var txt = el.innerText || el.textContent || "";
-                                return txt.replace(/\\s+/g, '').includes('엑셀다운로드');
-                            });
+                    # 💡 [핵심 패치 2] 눈에 보이는 모든 '엑셀' 관련 버튼을 찾아 맨 마지막 놈을 쏩니다.
+                    for _ in range(15): 
+                        # '엑셀다운로드' 또는 'CSV' 글씨가 있거나 클래스에 excel이 있는 모든 요소 찾기
+                        xpath = "//*[contains(translate(normalize-space(.), ' ', ''), '엑셀다운로드') or contains(translate(normalize-space(.), ' ', ''), 'CSV다운로드') or contains(@class, 'excel') or contains(@title, '엑셀')]"
+                        excel_btns = driver.find_elements(By.XPATH, xpath)
+                        
+                        if excel_btns:
+                            # 화면에 로딩된 버튼들 중 가장 밑바닥에 있는(마지막) 놈을 타겟으로 잡습니다!
+                            target = excel_btns[-1]
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
+                            time.sleep(1)
                             
-                            if (allBtns.length > 0) {
-                                if (allBtns.length >= 3) {
-                                    var target = allBtns[2];
-                                    target.scrollIntoView({block: 'center'});
-                                    target.click();
-                                    return true;
-                                } else {
-                                    var target = allBtns[allBtns.length - 1];
-                                    target.scrollIntoView({block: 'center'});
-                                    target.click();
-                                    return true;
-                                }
-                            }
-                            return false;
-                        """)
-                        if clicked:
+                            try:
+                                target.click() # 일반 클릭 시도
+                            except:
+                                driver.execute_script("arguments[0].click();", target) # 안되면 강제 자바스크립트 클릭
+                                
                             found_and_clicked = True
-                            print(f"📥 [{brand}] {etf_name} 자산구성 엑셀 강제 클릭 완료!", end="\r", flush=True)
+                            print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료! (맨 밑바닥 타격)", end="\r", flush=True)
                             break
                         time.sleep(1)
                         
                 else: 
+                    # TIME, KoAct는 기존 방식이 잘 먹히니 그대로 둡니다.
                     time.sleep(3)
                     driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
                     time.sleep(2)
@@ -211,8 +203,5 @@ for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(
             print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}", flush=True)
         except Exception:
             pass
-
-print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
-        except: pass
 
 print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
