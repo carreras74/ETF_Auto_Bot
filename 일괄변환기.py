@@ -1,22 +1,27 @@
 import os
+import sys  # 💡 추가
 import pandas as pd
-import glob
-import re
-import time
-import gspread
-from datetime import datetime
+# ... (기존 import들) ...
 
 # =========================================
 # 1. 구글 시트 및 환경 설정
 # =========================================
+sh = None  # 💡 초기값 설정
 try:
     current_folder = os.getcwd()
-    gc = gspread.service_account(filename=os.path.join(current_folder, 'google_key.json'))
+    key_path = os.path.join(current_folder, 'google_key.json')
+    
+    if not os.path.exists(key_path):
+        print("❌ [에러] google_key.json 파일이 존재하지 않습니다.")
+        sys.exit(1)
+
+    gc = gspread.service_account(filename=key_path)
     SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit' 
     sh = gc.open_by_url(SHEET_URL)
     print("✅ [연결] 구글 시트 접속 성공!")
 except Exception as e:
     print(f"❌ [에러] 구글 시트 연결 실패: {e}")
+    sys.exit(1)  # 💡 연결 실패 시 프로그램을 여기서 즉시 종료합니다!
 
 # =========================================
 # 2. 데이터 읽기 전용 엔진
