@@ -47,7 +47,7 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 테스트 속도를 위해 TIGER 선봉 유지!
+# 💡 속도를 위해 TIGER 선봉 유지!
 task_list = [
     {"brand": "TIGER", "etfs": tiger_rooms},
     {"brand": "TIME", "etfs": time_rooms},
@@ -55,10 +55,11 @@ task_list = [
 ]
 
 chrome_options = Options()
+# 💡 [핵심 패치] 미래에셋 보안을 뚫어버리는 최신 투명 망토 장착! (이전의 구형 headless 방식을 버림)
+chrome_options.add_argument('--headless=new') 
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
-# 💡 [핵심 패치 1] 가상 모니터 세로 길이를 5000픽셀로 대폭 늘려버립니다!
-chrome_options.add_argument('--window-size=1920,5000') 
+chrome_options.add_argument('--window-size=1920x1080')
 chrome_options.add_argument('--log-level=3')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 chrome_options.add_argument("--disable-blink-features=AutomationControlled")
@@ -77,7 +78,7 @@ driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
 })
 
-driver.set_page_load_timeout(45)
+driver.set_page_load_timeout(30)
 
 try:
     print("🚀 [수집기 가동] 시각화 모드 (총 20개 완전체) 시작!", flush=True)
@@ -100,16 +101,15 @@ try:
                 found_and_clicked = False
                 
                 if brand == "TIGER":
-                    # 💡 [핵심 패치 2] 픽셀 단위(500px씩)로 무식하게 20번 찍어 누르며 스크롤을 강제합니다!
-                    for _ in range(20):
-                        driver.execute_script("window.scrollBy(0, 500);")
-                        time.sleep(0.5)
-                    time.sleep(3)
+                    # 💡 내 컴퓨터에서 완벽하게 작동했던 '그 스크롤 로직' 그대로 투입!
+                    for step in range(1, 11):
+                        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
+                        time.sleep(1)
+                    time.sleep(2)
                     
-                    # 💡 [핵심 패치 3] 아까 성공했던 '자산구성' 구역을 먼저 찾고, 없으면 3번째/마지막 버튼을 강제 클릭!
-                    for _ in range(20): 
+                    # 💡 내 컴퓨터에서 완벽하게 작동했던 '그 버튼 타격 로직' 그대로 투입!
+                    for _ in range(15): 
                         clicked = driver.execute_script("""
-                            // 1순위: 아까 성공했던 '자산구성' 블록을 샅샅이 뒤집니다.
                             var allDivs = Array.from(document.querySelectorAll('div, section, article'));
                             var targetSection = null;
                             for (var i = 0; i < allDivs.length; i++) {
@@ -127,30 +127,31 @@ try:
                                     return bTxt.replace(/\\s+/g, '').includes('엑셀다운로드');
                                 });
                                 if (excelBtn) {
+                                    excelBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
                                     excelBtn.click();
                                     return true;
                                 }
                             }
                             
-                            // 2순위: '자산구성' 구역을 못 찾으면 화면 전체의 엑셀 버튼 중 3번째나 마지막 놈을 쏩니다!
                             var fallbackBtns = Array.from(document.querySelectorAll('a, button, span')).filter(function(el) {
                                 var txt = el.innerText || el.textContent || "";
                                 return txt.replace(/\\s+/g, '').includes('엑셀다운로드');
                             });
                             
                             if (fallbackBtns.length >= 3) {
+                                fallbackBtns[2].scrollIntoView({block: 'center'});
                                 fallbackBtns[2].click();
                                 return true;
                             } else if (fallbackBtns.length > 0) {
+                                fallbackBtns[fallbackBtns.length - 1].scrollIntoView({block: 'center'});
                                 fallbackBtns[fallbackBtns.length - 1].click();
                                 return true;
                             }
-                            
                             return false;
                         """)
                         if clicked:
                             found_and_clicked = True
-                            print(f"📥 [{brand}] {etf_name} 자산구성 엑셀 강제 클릭 완료!", end="\r", flush=True)
+                            print(f"📥 [{brand}] {etf_name} 엑셀 클릭 완료! (로컬 검증 로직 적용)", end="\r", flush=True)
                             break
                         time.sleep(1)
                         
@@ -228,4 +229,4 @@ for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(
         except Exception:
             pass
 
-print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
+print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)python tiger_test.py
