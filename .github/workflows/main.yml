@@ -32,10 +32,10 @@ jobs:
         pip install -r requirements.txt
 
     - name: 4. 구글 시트 비밀키(JSON) 생성
-      env:
-        GCP_KEY: ${{ secrets.GCP_KEY }}
       run: |
-        echo "$GCP_KEY" > google_key.json
+        cat <<EOF > google_key.json
+        ${{ secrets.GCP_KEY }}
+        EOF
 
     - name: 5. 엑셀 파일 수집기 실행 (가상 모니터 환경 탑재!)
       run: |
