@@ -4,9 +4,8 @@ import glob
 import re
 import time
 import gspread
-from datetime import datetime
 
-# 💡 [핵심 패치] TIGER의 멀티 테이블 중 '진짜 종목 데이터'만 솎아내는 함수
+# 💡 [시즌 3] TIGER의 멀티 테이블 중 '진짜 종목 데이터'만 솎아내는 엔진
 def read_etf_data(filepath):
     df_list = []
     if filepath.endswith('.csv'):
@@ -14,9 +13,9 @@ def read_etf_data(filepath):
         except: df_list = [pd.read_csv(filepath, encoding='cp949', header=None)]
     else:
         try:
-            # TIGER .xls(실제는 HTML) 파일 내의 모든 표를 싹 다 읽습니다.
+            # TIGER 엑셀(사실은 HTML) 내의 모든 표를 싹 다 읽습니다.
             df_list = pd.read_html(filepath)
-        except Exception as e:
+        except Exception:
             try: df_list = [pd.read_excel(filepath, header=None)]
             except: df_list = []
 
@@ -32,8 +31,7 @@ def read_etf_data(filepath):
             break
             
     if target_df is None:
-        # 못 찾으면 첫 번째 표라도 반환해서 시도합니다.
-        target_df = df_list[0]
+        target_df = df_list[0] # 못 찾으면 첫 번째 거라도 시도
 
     # 실제 기둥(Header) 위치 찾기
     header_idx = 0
@@ -46,15 +44,15 @@ def read_etf_data(filepath):
     target_df.columns = target_df.iloc[header_idx]
     target_df = target_df.iloc[header_idx+1:].reset_index(drop=True)
     
-    # 컬럼명 특수문자 및 공백 제거
+    # 컬럼명 정리 (공백/줄바꿈 제거)
     target_df.columns = [str(c).replace(' ', '').replace('\n', '').replace('\r', '') for c in target_df.columns]
     
-    # 핵심 컬럼(종목명, 비중, 수량) 자동 탐지
     n_col = next((c for c in target_df.columns if '종목' in c or '자산' in c or '명' in c), None)
     w_col = next((c for c in target_df.columns if '비중' in c or '비율' in c), None)
     q_col = next((c for c in target_df.columns if any(k in c for k in ['수량', '주식수', '주수'])), None)
     
     return target_df, n_col, w_col, q_col
 
-# [참고] 이후 구글 시트 업로드 및 변환 로직은 기존과 동일하게 유지하시면 됩니다.
-print("✅ TIGER 멀티테이블 대응 엔진 장착 완료!")
+# --- [이하 변환 및 구글 업로드 로직 시작] ---
+# (대표님, 기존에 잘 돌아가던 나머지 코드들을 이 아래에 붙여넣으시면 됩니다.)
+# 만약 전체 코드가 필요하시면 말씀해 주세요!
