@@ -1,7 +1,6 @@
 on:
   schedule:
     # 💡 UTC 기준 일~목 밤 21시 50분 = KST 기준 월~금 아침 6시 50분!
-    # 깃허브 서버의 지각(딜레이) 현상을 역이용해서 아예 새벽에 미리 줄을 세워둡니다!
     - cron: '50 21 * * 0-4' 
   workflow_dispatch: 
   push:
@@ -18,6 +17,8 @@ jobs:
     steps:
     - name: 1. 내 저장소 파일 가져오기 (Checkout)
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 💡 [보강] 과거 기록까지 다 가져와야 충돌이 안 납니다.
 
     - name: 2. 파이썬 환경 세팅
       uses: actions/setup-python@v5
@@ -44,13 +45,12 @@ jobs:
       run: |
         python 일괄변환기.py
 
-    # 💡 [에러 해결] 필요 없는 '분석기.py' 실행 단계를 삭제했습니다! (분석은 app.py가 알아서 합니다)
-
-    - name: Commit and Push
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "🤖 일일 수집 및 업로드 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
-          git pull --rebase origin main  # 💡 [핵심 패치] 충돌 방지용 리베이스 추가
-          git push origin main
+    - name: 7. Commit and Push
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git config pull.rebase true  # 💡 [보강] 리베이스 설정을 명시적으로 고정
+        git add .
+        git commit -m "🤖 일일 수집 및 업로드 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
+        git pull origin main
+        git push origin main
