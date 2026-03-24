@@ -15,8 +15,8 @@ download_dir = target_dir
 date_time = datetime.now().strftime("%Y-%m-%d") 
 date_koact = datetime.now().strftime("%Y%m%d")  
 
-print(f"📍 작업 위치: {target_dir}")
-print(f"📅 TIME 날짜: {date_time} / KoAct, TIGER 날짜: {date_koact}\n")
+print(f"📍 작업 위치: {target_dir}", flush=True)
+print(f"📅 TIME 날짜: {date_time} / KoAct, TIGER 날짜: {date_koact}\n", flush=True)
 
 time_rooms = {
     "코스닥액티브": "https://timeetf.co.kr/m11_view.php?idx=24&cate=002",
@@ -40,7 +40,6 @@ koact_rooms = {
     "코스닥액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFU6"
 }
 
-# 💡 [TIGER 추가] 대표님이 찾아오신 미래에셋 주소록 완벽 장착!
 tiger_rooms = {
     "코리아테크액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007",
     "AI코리아그로스액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7365040005",
@@ -48,7 +47,6 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 💡 [TIGER 출격 대기] 총 20개 ETF 군단 완성!
 task_list = [
     {"brand": "TIME", "etfs": time_rooms},
     {"brand": "KoAct", "etfs": koact_rooms},
@@ -77,21 +75,29 @@ driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
 })
 
+# 💡 [핵심 패치 1] 무한 로딩 방지! 30초 넘으면 강제로 끊어버립니다.
+driver.set_page_load_timeout(30)
+
 try:
-    print("🚀 [수집기 가동] 시각화 모드 (총 20개 완전체) 시작!")
+    print("🚀 [수집기 가동] 시각화 모드 (총 20개 완전체) 시작!", flush=True)
 
     for task in task_list:
         brand = task["brand"]
         rooms = task["etfs"]
-        print(f"\n=========================================")
-        print(f"🏢 [{brand}] 운용사 포트폴리오 추출 시작...")
+        print(f"\n=========================================", flush=True)
+        print(f"🏢 [{brand}] 운용사 포트폴리오 추출 시작...", flush=True)
         
         for etf_name, room_url in rooms.items():
             try:
-                driver.get(room_url)
+                # 💡 [핵심 패치 2] 로딩이 멈춰도 에러 내지 말고, 창 멈추고 버튼 찾기로 넘어가라!
+                try:
+                    driver.get(room_url)
+                except Exception as e:
+                    print(f"⚠️ [{brand}] {etf_name} 로딩 지연! 강제 스크롤 시도...", flush=True)
+                    driver.execute_script("window.stop();")
+                
                 time.sleep(5) 
                 
-                # 💡 [핵심 패치] TIGER 사이트의 엑셀/CSV 버튼까지 모조리 잡아내는 만능 돋보기!
                 xpath_excel = (
                     "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(text(), 'CSV') or contains(@class, 'csv') or contains(@href, 'excel')] | "
                     "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(text(), 'CSV')] | "
@@ -106,13 +112,13 @@ try:
                     
                     before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
                     driver.execute_script("arguments[0].click();", target_button)
-                    print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료!", end="\r")
+                    print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료!", end="\r", flush=True)
                     
                     time.sleep(1)
                     try:
                         alert = driver.switch_to.alert
                         alert.accept() 
-                        print(f"⚠️ [{brand}] {etf_name} 다운로드 스킵 (경고창 무시).")
+                        print(f"⚠️ [{brand}] {etf_name} 다운로드 스킵 (경고창 무시).", flush=True)
                         continue 
                     except:
                         pass 
@@ -130,8 +136,6 @@ try:
                     
                     if new_file_path:
                         ext = os.path.splitext(new_file_path)[1]
-                        
-                        # 💡 TIGER 파일 이름 규칙 추가
                         if brand == "TIME": final_name = f"구성종목(PDF){brand}{etf_name}_{date_time}{ext}"
                         elif brand == "KoAct": final_name = f"{brand} {etf_name}_{date_koact}{ext}"
                         elif brand == "TIGER": final_name = f"{brand} {etf_name}_{date_koact}{ext}"
@@ -142,24 +146,23 @@ try:
                             if os.path.exists(final_path): os.remove(final_path)
                             shutil.move(new_file_path, final_path)
                             
-                        print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ")
-                    else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.")
-                else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.")
-            except Exception as e: print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}")
+                        print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ", flush=True)
+                    else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.", flush=True)
+                else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.", flush=True)
+            except Exception as e: print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}", flush=True)
             time.sleep(2)
 
 finally:
     time.sleep(2)
     driver.quit()
 
-print("\n🧹 찌꺼기 파일 청소 중...")
+print("\n🧹 찌꺼기 파일 청소 중...", flush=True)
 for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")) + glob.glob(os.path.join(target_dir, "*.csv")):
     fname = os.path.basename(f)
-    # 💡 청소부가 TIGER 파일은 버리지 않도록 등록
     if "TIME" not in fname and "KoAct" not in fname and "TIGER" not in fname:
         try: 
             os.remove(f)
-            print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}")
+            print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}", flush=True)
         except: pass
 
-print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!")
+print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
