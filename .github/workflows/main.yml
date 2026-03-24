@@ -46,10 +46,11 @@ jobs:
 
     # 💡 [에러 해결] 필요 없는 '분석기.py' 실행 단계를 삭제했습니다! (분석은 app.py가 알아서 합니다)
 
-    - name: 7. 수집 데이터 깃허브 영구 저장 (Commit & Push)
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add *.xlsx *.xls *.csv
-        git commit -m "🤖 일일 수집 및 업로드 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
-        git push
+    - name: Commit and Push
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "🤖 일일 수집 및 업로드 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git pull --rebase origin main  # 💡 [핵심 패치] 충돌 방지용 리베이스 추가
+          git push origin main
