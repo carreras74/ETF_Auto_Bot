@@ -47,7 +47,7 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 💡 [핵심 패치] TIGER를 맨 위로 올려서 테스트 속도를 광속으로 끌어올렸습니다!
+# 테스트 속도를 위해 TIGER 먼저 실행
 task_list = [
     {"brand": "TIGER", "etfs": tiger_rooms},
     {"brand": "TIME", "etfs": time_rooms},
@@ -95,43 +95,62 @@ try:
                     print(f"⚠️ [{brand}] {etf_name} 로딩 지연! 강제 스크롤 시도...", flush=True)
                     driver.execute_script("window.stop();")
                 
-                # TIGER 꼼수 방어: 화면을 5등분해서 천천히 달래가며 훑어 내립니다.
+                before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
+                found_and_clicked = False
+                
+                # 💡 [핵심 패치] TIGER 전용 스나이퍼 로직 (대표님 제보: 바닥에서 첫 번째 엑셀다운로드 타격!)
                 if brand == "TIGER":
-                    for step in range(1, 6):
-                        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/5));")
-                        time.sleep(1.5)
-                else:
+                    # 1. 끈질기게 스크롤을 끝까지 내려서 표를 강제로 띄웁니다.
+                    for step in range(1, 11):
+                        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
+                        time.sleep(0.5)
+                    time.sleep(2)
+                    
+                    # 2. 화면에 있는 모든 '엑셀다운로드'를 싹 뒤져서 제일 마지막(바닥에 있는 놈)을 클릭합니다.
+                    for _ in range(15): # 최대 15초간 수색
+                        clicked = driver.execute_script("""
+                            var elements = Array.from(document.querySelectorAll('a, button, span, div'));
+                            var excelBtns = elements.filter(function(el) {
+                                var txt = el.innerText || el.textContent;
+                                return txt && txt.replace(/\\s+/g, '').includes('엑셀다운로드');
+                            });
+                            
+                            if (excelBtns.length > 0) {
+                                var target = excelBtns[excelBtns.length - 1]; // 배열의 가장 마지막 = 바닥에서 첫 번째!
+                                target.scrollIntoView({block: 'center', behavior: 'smooth'});
+                                target.click();
+                                return true;
+                            }
+                            return false;
+                        """)
+                        if clicked:
+                            found_and_clicked = True
+                            print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료! (JS 스나이퍼)", end="\r", flush=True)
+                            break
+                        time.sleep(1)
+                        
+                else: # TIME, KoAct (기존 로직)
                     time.sleep(3)
                     driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
                     time.sleep(2)
                     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                     time.sleep(3)
-                
-                # TIGER 전용 저인망 그물
-                if brand == "TIGER":
-                    xpath_excel = (
-                        "//button[contains(., '엑셀') or contains(translate(@class, 'EXCEL', 'excel'), 'excel')] | "
-                        "//a[contains(., '엑셀') or contains(translate(@class, 'EXCEL', 'excel'), 'excel') or contains(@href, 'excel')] | "
-                        "//*[contains(@title, '엑셀') or contains(@alt, '엑셀')]/ancestor-or-self::a | "
-                        "//*[contains(@title, '엑셀') or contains(@alt, '엑셀')]/ancestor-or-self::button"
-                    )
-                else:
+                    
                     xpath_excel = (
                         "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
                         "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')] | "
                         "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel')]/parent::a"
                     )
-                
-                excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
-                if excel_buttons:
-                    target_button = excel_buttons[-1] 
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
-                    time.sleep(1.5)
-                    
-                    before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                    driver.execute_script("arguments[0].click();", target_button)
-                    print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료!", end="\r", flush=True)
-                    
+                    excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
+                    if excel_buttons:
+                        target_button = excel_buttons[-1] 
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
+                        time.sleep(1.5)
+                        driver.execute_script("arguments[0].click();", target_button)
+                        found_and_clicked = True
+                        print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료!", end="\r", flush=True)
+
+                if found_and_clicked:
                     time.sleep(1)
                     try:
                         alert = driver.switch_to.alert
