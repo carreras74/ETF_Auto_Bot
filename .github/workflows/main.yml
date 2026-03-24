@@ -32,18 +32,19 @@ jobs:
         # (확인용) 생성된 파일의 첫 줄이 { 인지 살짝 확인 (보안상 값은 안 보임)
         head -c 1 google_key.json
 
-    - name: 실행
-      run: |
-        xvfb-run -a python ETF_collector.py
-        python 일괄변환기.py
-
-    - name: 저장 (충돌 방지)
+    - name: 저장 (보안 강화 버전)
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         
-        # 💡 [핵심 보안] 열쇠 파일이 있으면 삭제하고 push 하도록 명령
-        git rm --cached google_key.json || echo "No file in index" 
+        # 💡 [필살기] 깃허브에 올리기 전에 열쇠 파일을 아예 삭제합니다!
+        # 이렇게 하면 git add . 을 해도 열쇠가 안 올라갑니다.
+        rm -f google_key.json
+        
+        git add .
+        git commit -m "🤖 안정화 버전 일일 수집 완료: $(date +'%Y-%m-%d')" || exit 0
+        git pull --rebase origin main
+        git push origin main 
         
         git add .
         git commit -m "🤖 안정화 버전 일일 수집 완료" || exit 0
