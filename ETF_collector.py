@@ -47,7 +47,6 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 💡 속도를 위해 TIGER 선봉 유지!
 task_list = [
     {"brand": "TIGER", "etfs": tiger_rooms},
     {"brand": "TIME", "etfs": time_rooms},
@@ -55,7 +54,7 @@ task_list = [
 ]
 
 chrome_options = Options()
-# 💡 [핵심 패치] 미래에셋 보안을 뚫어버리는 최신 투명 망토 장착! (이전의 구형 headless 방식을 버림)
+# 💡 TIGER 보안을 뚫는 최신 투명 망토!
 chrome_options.add_argument('--headless=new') 
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
@@ -101,13 +100,11 @@ try:
                 found_and_clicked = False
                 
                 if brand == "TIGER":
-                    # 💡 내 컴퓨터에서 완벽하게 작동했던 '그 스크롤 로직' 그대로 투입!
                     for step in range(1, 11):
                         driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
                         time.sleep(1)
                     time.sleep(2)
                     
-                    # 💡 내 컴퓨터에서 완벽하게 작동했던 '그 버튼 타격 로직' 그대로 투입!
                     for _ in range(15): 
                         clicked = driver.execute_script("""
                             var allDivs = Array.from(document.querySelectorAll('div, section, article'));
@@ -229,4 +226,4 @@ for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(
         except Exception:
             pass
 
-print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)python tiger_test.py
+print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
