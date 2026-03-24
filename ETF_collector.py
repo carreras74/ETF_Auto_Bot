@@ -75,7 +75,6 @@ driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
 })
 
-# 💡 [핵심 패치 1] 무한 로딩 방지! 30초 넘으면 강제로 끊어버립니다.
 driver.set_page_load_timeout(30)
 
 try:
@@ -89,20 +88,31 @@ try:
         
         for etf_name, room_url in rooms.items():
             try:
-                # 💡 [핵심 패치 2] 로딩이 멈춰도 에러 내지 말고, 창 멈추고 버튼 찾기로 넘어가라!
                 try:
                     driver.get(room_url)
                 except Exception as e:
                     print(f"⚠️ [{brand}] {etf_name} 로딩 지연! 강제 스크롤 시도...", flush=True)
                     driver.execute_script("window.stop();")
                 
-                time.sleep(5) 
+                time.sleep(3)
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+                time.sleep(2)
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(3)
                 
-                xpath_excel = (
-                    "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(text(), 'CSV') or contains(@class, 'csv') or contains(@href, 'excel')] | "
-                    "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(text(), 'CSV')] | "
-                    "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel') or contains(@alt, 'CSV')]/parent::a"
-                )
+                # 💡 [핵심 패치] 대표님 제보 완벽 반영! '엑셀다운로드' 버튼 정밀 타격!
+                if brand == "TIGER":
+                    xpath_excel = (
+                        "//a[contains(translate(normalize-space(.), ' ', ''), '엑셀다운로드') or contains(., '엑셀다운로드') or contains(., '엑셀 다운로드')] | "
+                        "//button[contains(translate(normalize-space(.), ' ', ''), '엑셀다운로드') or contains(., '엑셀다운로드')] | "
+                        "//span[contains(., '엑셀다운로드') or contains(., '엑셀 다운로드')]/parent::a"
+                    )
+                else:
+                    xpath_excel = (
+                        "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
+                        "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')] | "
+                        "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel')]/parent::a"
+                    )
                 
                 excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
                 if excel_buttons:
