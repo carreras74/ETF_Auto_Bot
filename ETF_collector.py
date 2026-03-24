@@ -47,7 +47,7 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 테스트를 위해 여전히 TIGER 선봉장!
+# 테스트를 위해 TIGER 선봉 유지!
 task_list = [
     {"brand": "TIGER", "etfs": tiger_rooms},
     {"brand": "TIME", "etfs": time_rooms},
@@ -98,40 +98,61 @@ try:
                 before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
                 found_and_clicked = False
                 
-                # 💡 [핵심 패치] TIGER 전용 스나이퍼 로직 (대표님 제보: 우측 3번째 진짜 버튼 타격!)
+                # 💡 [핵심 패치] TIGER 전용 '자산구성' 섹션 내 엑셀 버튼만 저격!
                 if brand == "TIGER":
-                    # 1. 스크롤을 끝까지 천천히 내려서 숨겨진 표를 모두 로딩시킵니다.
+                    # 1. 끈질기게 스크롤을 끝까지 내려서 모든 표를 띄웁니다.
                     for step in range(1, 11):
                         driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
                         time.sleep(0.5)
                     time.sleep(2)
                     
-                    # 2. 화면에 '실제로 보이는' 엑셀다운로드 버튼 중 정확히 '3번째' 놈을 쏩니다!
+                    # 2. '자산구성(구성종목 PDF)' 이라는 제목을 가진 섹션을 찾고, 그 섹션 안에 있는 엑셀다운로드를 클릭!
                     for _ in range(15): 
                         clicked = driver.execute_script("""
-                            var elements = Array.from(document.querySelectorAll('a, button, span'));
-                            var excelBtns = elements.filter(function(el) {
+                            // 1. 화면에 있는 모든 컨테이너(div, section 등)를 다 뒤져서 '자산구성' 글자가 있는 블록을 찾음
+                            var allDivs = Array.from(document.querySelectorAll('div, section, article'));
+                            var targetSection = null;
+                            
+                            for (var i = 0; i < allDivs.length; i++) {
+                                var txt = allDivs[i].innerText || allDivs[i].textContent;
+                                if (txt && txt.includes('자산구성(구성종목 PDF)')) {
+                                    targetSection = allDivs[i];
+                                    break;
+                                }
+                            }
+                            
+                            if (targetSection) {
+                                // 2. 그 '자산구성' 블록 안에서만 '엑셀다운로드' 버튼을 찾음 (가짜 버튼들 완벽 차단!)
+                                var btns = Array.from(targetSection.querySelectorAll('a, button, span'));
+                                var excelBtn = btns.find(function(b) {
+                                    var bTxt = b.innerText || b.textContent;
+                                    return bTxt && bTxt.replace(/\\s+/g, '').includes('엑셀다운로드') && b.offsetWidth > 0;
+                                });
+                                
+                                if (excelBtn) {
+                                    excelBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
+                                    excelBtn.click();
+                                    return true;
+                                }
+                            }
+                            // 혹시 구조가 달라서 위 방식이 실패하면, 무식하게 화면 맨 마지막에 있는 엑셀을 클릭하는 플랜 B
+                            var fallbackBtns = Array.from(document.querySelectorAll('a, button, span')).filter(function(el) {
                                 var txt = el.innerText || el.textContent;
-                                return txt && txt.replace(/\\s+/g, '').includes('엑셀다운로드') && el.offsetWidth > 0 && el.offsetHeight > 0;
+                                return txt && txt.replace(/\\s+/g, '').includes('엑셀다운로드') && el.offsetWidth > 0;
                             });
                             
-                            if (excelBtns.length >= 3) {
-                                var target = excelBtns[2]; // 배열의 3번째 (인덱스 2) 놈 타격!
-                                target.scrollIntoView({block: 'center', behavior: 'smooth'});
-                                target.click();
-                                return true;
-                            } else if (excelBtns.length > 0) {
-                                // 혹시나 3개가 안되면 최후의 수단으로 맨 마지막 놈을 쏩니다.
-                                var target = excelBtns[excelBtns.length - 1]; 
-                                target.scrollIntoView({block: 'center', behavior: 'smooth'});
-                                target.click();
+                            if (fallbackBtns.length > 0) {
+                                var lastBtn = fallbackBtns[fallbackBtns.length - 1];
+                                lastBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
+                                lastBtn.click();
                                 return true;
                             }
+                            
                             return false;
                         """)
                         if clicked:
                             found_and_clicked = True
-                            print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료! (JS 3번째 타격)", end="\r", flush=True)
+                            print(f"📥 [{brand}] {etf_name} 자산구성 엑셀 클릭 완료!", end="\r", flush=True)
                             break
                         time.sleep(1)
                         
