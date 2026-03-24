@@ -47,7 +47,7 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 테스트 속도를 위해 TIGER 먼저 실행
+# 테스트를 위해 여전히 TIGER 선봉장!
 task_list = [
     {"brand": "TIGER", "etfs": tiger_rooms},
     {"brand": "TIME", "etfs": time_rooms},
@@ -98,25 +98,31 @@ try:
                 before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
                 found_and_clicked = False
                 
-                # 💡 [핵심 패치] TIGER 전용 스나이퍼 로직 (대표님 제보: 바닥에서 첫 번째 엑셀다운로드 타격!)
+                # 💡 [핵심 패치] TIGER 전용 스나이퍼 로직 (대표님 제보: 우측 3번째 진짜 버튼 타격!)
                 if brand == "TIGER":
-                    # 1. 끈질기게 스크롤을 끝까지 내려서 표를 강제로 띄웁니다.
+                    # 1. 스크롤을 끝까지 천천히 내려서 숨겨진 표를 모두 로딩시킵니다.
                     for step in range(1, 11):
                         driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
                         time.sleep(0.5)
                     time.sleep(2)
                     
-                    # 2. 화면에 있는 모든 '엑셀다운로드'를 싹 뒤져서 제일 마지막(바닥에 있는 놈)을 클릭합니다.
-                    for _ in range(15): # 최대 15초간 수색
+                    # 2. 화면에 '실제로 보이는' 엑셀다운로드 버튼 중 정확히 '3번째' 놈을 쏩니다!
+                    for _ in range(15): 
                         clicked = driver.execute_script("""
-                            var elements = Array.from(document.querySelectorAll('a, button, span, div'));
+                            var elements = Array.from(document.querySelectorAll('a, button, span'));
                             var excelBtns = elements.filter(function(el) {
                                 var txt = el.innerText || el.textContent;
-                                return txt && txt.replace(/\\s+/g, '').includes('엑셀다운로드');
+                                return txt && txt.replace(/\\s+/g, '').includes('엑셀다운로드') && el.offsetWidth > 0 && el.offsetHeight > 0;
                             });
                             
-                            if (excelBtns.length > 0) {
-                                var target = excelBtns[excelBtns.length - 1]; // 배열의 가장 마지막 = 바닥에서 첫 번째!
+                            if (excelBtns.length >= 3) {
+                                var target = excelBtns[2]; // 배열의 3번째 (인덱스 2) 놈 타격!
+                                target.scrollIntoView({block: 'center', behavior: 'smooth'});
+                                target.click();
+                                return true;
+                            } else if (excelBtns.length > 0) {
+                                // 혹시나 3개가 안되면 최후의 수단으로 맨 마지막 놈을 쏩니다.
+                                var target = excelBtns[excelBtns.length - 1]; 
                                 target.scrollIntoView({block: 'center', behavior: 'smooth'});
                                 target.click();
                                 return true;
@@ -125,11 +131,11 @@ try:
                         """)
                         if clicked:
                             found_and_clicked = True
-                            print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료! (JS 스나이퍼)", end="\r", flush=True)
+                            print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료! (JS 3번째 타격)", end="\r", flush=True)
                             break
                         time.sleep(1)
                         
-                else: # TIME, KoAct (기존 로직)
+                else: 
                     time.sleep(3)
                     driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
                     time.sleep(2)
