@@ -47,10 +47,11 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
+# 💡 [핵심 패치] TIGER를 맨 위로 올려서 테스트 속도를 광속으로 끌어올렸습니다!
 task_list = [
+    {"brand": "TIGER", "etfs": tiger_rooms},
     {"brand": "TIME", "etfs": time_rooms},
-    {"brand": "KoAct", "etfs": koact_rooms},
-    {"brand": "TIGER", "etfs": tiger_rooms}
+    {"brand": "KoAct", "etfs": koact_rooms}
 ]
 
 chrome_options = Options()
@@ -94,18 +95,25 @@ try:
                     print(f"⚠️ [{brand}] {etf_name} 로딩 지연! 강제 스크롤 시도...", flush=True)
                     driver.execute_script("window.stop();")
                 
-                time.sleep(3)
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
-                time.sleep(2)
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(3)
+                # TIGER 꼼수 방어: 화면을 5등분해서 천천히 달래가며 훑어 내립니다.
+                if brand == "TIGER":
+                    for step in range(1, 6):
+                        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/5));")
+                        time.sleep(1.5)
+                else:
+                    time.sleep(3)
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+                    time.sleep(2)
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(3)
                 
-                # 💡 [핵심 패치] 대표님 제보 완벽 반영! '엑셀다운로드' 버튼 정밀 타격!
+                # TIGER 전용 저인망 그물
                 if brand == "TIGER":
                     xpath_excel = (
-                        "//a[contains(translate(normalize-space(.), ' ', ''), '엑셀다운로드') or contains(., '엑셀다운로드') or contains(., '엑셀 다운로드')] | "
-                        "//button[contains(translate(normalize-space(.), ' ', ''), '엑셀다운로드') or contains(., '엑셀다운로드')] | "
-                        "//span[contains(., '엑셀다운로드') or contains(., '엑셀 다운로드')]/parent::a"
+                        "//button[contains(., '엑셀') or contains(translate(@class, 'EXCEL', 'excel'), 'excel')] | "
+                        "//a[contains(., '엑셀') or contains(translate(@class, 'EXCEL', 'excel'), 'excel') or contains(@href, 'excel')] | "
+                        "//*[contains(@title, '엑셀') or contains(@alt, '엑셀')]/ancestor-or-self::a | "
+                        "//*[contains(@title, '엑셀') or contains(@alt, '엑셀')]/ancestor-or-self::button"
                     )
                 else:
                     xpath_excel = (
