@@ -31,14 +31,12 @@ try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [비중 + 수량증감 + 주가 추적 모터] 시즌3 (TIGER 통합) 변환기 실행 중...\n")
+print("🚀 [비중 + 수량증감 + 주가 추적 모터] 시즌3 (TIGER 완전체) 변환기 실행 중...\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
 try:
     gc = gspread.service_account(filename=os.path.join(current_folder, 'google_key.json'))
-    
-    # 💡 [주의] 구글 시트 주소를 반드시 다시 적어주세요!
     SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit?gid=1831966955#gid=1831966955' 
     sh = gc.open_by_url(SHEET_URL)
     
@@ -49,9 +47,6 @@ except Exception as e:
     google_connected = False
 print("=========================================\n")
 
-# =====================================================================
-# 💡 [시즌 2 핵심 패치] KRX 전 종목 데이터 단 1초만에 캐싱 (사전 베이킹)
-# =====================================================================
 print("=========================================")
 print("📈 한국거래소(KRX) 전체 주가/등락률 초고속 스캔 중...")
 try:
@@ -68,7 +63,6 @@ except Exception as e:
     krx_dict = {}
 print("=========================================\n")
 
-# 💡 [TIGER 추가 패치 1] TIME, KoAct, TIGER 모두 레이더망에 포함!
 all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
              if f.endswith(('.csv', '.xlsx', '.xls')) 
              and any(brand in f for brand in ["TIME", "KoAct", "TIGER"]) 
@@ -98,7 +92,6 @@ for f in all_files:
     etf_groups[etf_name].append({'file': f, 'date': file_date})
 
 def read_etf_data(filepath):
-    # 💡 [TIGER 특수 패치 1] 가짜 엑셀(HTML)을 대비한 3단 콤보 읽기
     df = None
     if filepath.endswith('.csv'):
         try: df = pd.read_csv(filepath, encoding='utf-8-sig', header=None)
@@ -107,25 +100,38 @@ def read_etf_data(filepath):
         try: df = pd.read_excel(filepath, header=None)
         except:
             try: df = pd.read_html(filepath, encoding='utf-8')[0]
-            except: df = pd.read_html(filepath, encoding='cp949')[0]
-            
+            except: 
+                try: df = pd.read_html(filepath, encoding='cp949')[0]
+                except:
+                    # 💡 가끔 엑셀(.xls) 탈을 쓴 CSV일 수 있으니 최후의 수단으로 CSV 읽기 시도!
+                    try: df = pd.read_csv(filepath, encoding='utf-8-sig', header=None)
+                    except: df = pd.read_csv(filepath, encoding='cp949', header=None)
+                    
+    if df is None or df.empty:
+        raise ValueError("파일 안의 표를 해독할 수 없습니다 (파일이 비었거나 형식이 다름).")
+
     header_idx = 0
     for i, row in df.iterrows():
         row_strs = [str(x).replace(' ', '') for x in row.values]
-        if any('종목' in s or '자산' in s for s in row_strs) and any('비중' in s for s in row_strs):
+        # 💡 [핵심 패치 1] 아주 융통성 있게 표 머리글(Header)을 찾습니다!
+        if (any('종목' in s or '자산' in s or 'Name' in s for s in row_strs) and 
+            any('비중' in s or '비율' in s or 'Weight' in s for s in row_strs)):
             header_idx = i
             break
             
     df.columns = df.iloc[header_idx]
     df = df.iloc[header_idx+1:].reset_index(drop=True)
-    df.columns = [str(c).strip() for c in df.columns]
     
-    n_col = next((c for c in df.columns if '종목명' in c or '자산명' in c), None)
-    w_col = next((c for c in df.columns if '비중' in c), None)
-    q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수'])), None)
+    # 💡 [핵심 패치 2] 기둥(컬럼명)의 띄어쓰기, 줄바꿈을 다 박살 내서 비교하기 쉽게 만듭니다.
+    df.columns = [str(c).replace(' ', '').replace('\n', '') for c in df.columns]
+    
+    # 💡 [핵심 패치 3] '종목명'이든 '구성종목'이든 뭐든 다 걸러냅니다.
+    n_col = next((c for c in df.columns if '종목' in c or '자산' in c or '명' in c), None)
+    w_col = next((c for c in df.columns if '비중' in c or '비율' in c), None)
+    q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수', '주수'])), None)
     
     if n_col and w_col:
-        # 💡 [TIGER 특수 패치 2] 대표님 요청 완벽 반영: 원화예금, 예수금 등 찌꺼기 100% 컷아웃!
+        # TIGER 원화예금/현금 등 잡다한 찌꺼기 완벽 차단!
         df = df[~df[n_col].astype(str).str.contains('원화현금|예수금|원화예금|KRW', na=False, case=False)]
         
         df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(',', '').str.replace('%', ''), errors='coerce').fillna(0)
@@ -137,7 +143,8 @@ def read_etf_data(filepath):
             
         return df, n_col, w_col, q_col
     else:
-        raise ValueError("종목명이나 비중 컬럼을 찾을 수 없습니다.")
+        # 💡 실패하면 도대체 엑셀에 뭐라고 적혀있는지 증거를 남깁니다!
+        raise ValueError(f"컬럼을 찾을 수 없습니다. (현재 엑셀에서 발견된 기둥 이름들: {list(df.columns)})")
 
 for etf_name, files_info in etf_groups.items():
     print(f"▶️ [{etf_name}] 수량/주가 추적 및 업로드 중...")
