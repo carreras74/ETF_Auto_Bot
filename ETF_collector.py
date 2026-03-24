@@ -100,7 +100,7 @@ try:
                 found_and_clicked = False
                 
                 if brand == "TIGER":
-                    # 💡 [스크롤 조지기] 위아래로 흔들어서 깃허브 서버가 무조건 렌더링하게 만듭니다.
+                    # 💡 스크롤을 10단계로 쪼개고, 1초씩 확실하게 쉬면서 인터넷이 느려도 표가 100% 뜨게 만듭니다!
                     for step in range(1, 11):
                         driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
                         time.sleep(1)
@@ -109,25 +109,21 @@ try:
                     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                     time.sleep(3)
                     
-                    # 💡 [핵심 패치] offsetWidth(눈에 보이는지 체크) 완전 삭제! 숨어있어도 멱살 잡고 누릅니다.
+                    # 💡 offsetWidth(눈에 보이는지 체크) 완전 삭제! 숨어있어도 멱살 잡고 누릅니다.
                     for _ in range(20): 
                         clicked = driver.execute_script("""
-                            // 모든 '엑셀다운로드' 텍스트를 가진 태그를 싹싹 긁어모읍니다. (가상 화면 체크 무시)
                             var allBtns = Array.from(document.querySelectorAll('a, button, span, div')).filter(function(el) {
                                 var txt = el.innerText || el.textContent || "";
                                 return txt.replace(/\\s+/g, '').includes('엑셀다운로드');
                             });
                             
                             if (allBtns.length > 0) {
-                                // 1순위: 대표님이 짚어주신 '3번째' 버튼 타격
                                 if (allBtns.length >= 3) {
                                     var target = allBtns[2];
                                     target.scrollIntoView({block: 'center'});
                                     target.click();
                                     return true;
-                                } 
-                                // 2순위: 3개가 안되면 무조건 '맨 마지막(바닥)' 놈 타격
-                                else {
+                                } else {
                                     var target = allBtns[allBtns.length - 1];
                                     target.scrollIntoView({block: 'center'});
                                     target.click();
@@ -210,10 +206,11 @@ print("\n🧹 찌꺼기 파일 청소 중...", flush=True)
 for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")) + glob.glob(os.path.join(target_dir, "*.csv")):
     fname = os.path.basename(f)
     if "TIME" not in fname and "KoAct" not in fname and "TIGER" not in fname:
-        try: 
+        try:
             os.remove(f)
             print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}", flush=True)
-        except: pass
+        except Exception:
+            pass
 
 print("\n✨ 총 20개 ETF 수집 및 청소 공정 완벽 종료!", flush=True)
         except: pass
