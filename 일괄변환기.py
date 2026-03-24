@@ -9,6 +9,9 @@ def install_package(package):
 try: import xlrd
 except ImportError: install_package("xlrd")
 
+try: import lxml
+except ImportError: install_package("lxml")
+
 try: import gspread
 except ImportError:
     install_package("gspread")
@@ -28,7 +31,7 @@ try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [비중 + 수량증감 + 주가 추적 모터] 시즌2 변환기 실행 중...\n")
+print("🚀 [비중 + 수량증감 + 주가 추적 모터] 시즌3 (TIGER 통합) 변환기 실행 중...\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
@@ -65,10 +68,10 @@ except Exception as e:
     krx_dict = {}
 print("=========================================\n")
 
-
+# 💡 [TIGER 추가 패치 1] TIME, KoAct, TIGER 모두 레이더망에 포함!
 all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
              if f.endswith(('.csv', '.xlsx', '.xls')) 
-             and ("TIME" in f or "KoAct" in f) 
+             and any(brand in f for brand in ["TIME", "KoAct", "TIGER"]) 
              and "30일추적" not in f 
              and "변환완료" not in f
              and "통합완료" not in f]
@@ -95,12 +98,17 @@ for f in all_files:
     etf_groups[etf_name].append({'file': f, 'date': file_date})
 
 def read_etf_data(filepath):
+    # 💡 [TIGER 특수 패치 1] 가짜 엑셀(HTML)을 대비한 3단 콤보 읽기
+    df = None
     if filepath.endswith('.csv'):
         try: df = pd.read_csv(filepath, encoding='utf-8-sig', header=None)
         except: df = pd.read_csv(filepath, encoding='cp949', header=None)
     else:
-        df = pd.read_excel(filepath, header=None)
-        
+        try: df = pd.read_excel(filepath, header=None)
+        except:
+            try: df = pd.read_html(filepath, encoding='utf-8')[0]
+            except: df = pd.read_html(filepath, encoding='cp949')[0]
+            
     header_idx = 0
     for i, row in df.iterrows():
         row_strs = [str(x).replace(' ', '') for x in row.values]
@@ -117,7 +125,10 @@ def read_etf_data(filepath):
     q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수'])), None)
     
     if n_col and w_col:
-        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+        # 💡 [TIGER 특수 패치 2] 대표님 요청 완벽 반영: 원화예금, 예수금 등 찌꺼기 100% 컷아웃!
+        df = df[~df[n_col].astype(str).str.contains('원화현금|예수금|원화예금|KRW', na=False, case=False)]
+        
+        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(',', '').str.replace('%', ''), errors='coerce').fillna(0)
         if df[w_col].sum() <= 2.0: df[w_col] = df[w_col] * 100
         df[w_col] = df[w_col].round(2)
         
@@ -149,7 +160,6 @@ for etf_name, files_info in etf_groups.items():
         prev_qty = {} 
         is_first_day = True 
         
-        # 💡 반복문을 돌 때 '오늘이 가장 최신 파일(마지막 날)인지' 확인하기 위해 enumerate 사용!
         for i, info in enumerate(files_info):
             is_last_day = (i == len(files_info) - 1)
             
@@ -176,7 +186,6 @@ for etf_name, files_info in etf_groups.items():
                 else:
                     w = 0; q = 0
                     
-                # 💡 [시즌 2 마법 패치] 최신 날짜(오늘)에만 주가/등락률 텍스트를 장착합니다!
                 price_str = ""
                 if is_last_day and krx_dict:
                     p_info = krx_dict.get(st_name)
