@@ -1,30 +1,23 @@
-name: 아침 주도주 자동 수집 봇 (Daily 7:35 AM KST)
-
 on:
   schedule:
     - cron: '50 21 * * 0-4' 
   workflow_dispatch: 
   push:
-    branches:
-      - main 
+    branches: [main]
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    
-    env:
-      TZ: Asia/Seoul
-
     steps:
-    - name: 1. 내 저장소 파일 가져오기 (Checkout)
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-    - name: 2. 파이썬 환경 세팅
-      uses: actions/setup-python@v5
+    - uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    - name: 3. 가상 모니터(Xvfb) 및 필수 패키지 설치
+    - name: 필수 패키지 설치
       run: |
         sudo apt-get update
         sudo apt-get install -y xvfb
@@ -34,22 +27,21 @@ jobs:
       env:
         GCP_KEY: ${{ secrets.GCP_KEY }}
       run: |
-        echo "$GCP_KEY" > google_key.json
+        # 💡 따옴표로 감싸서 내용이 변질되지 않게 강제로 박아넣습니다.
+        cat <<'EOF' > google_key.json
+        ${{ secrets.GCP_KEY }}
+        EOF
 
-    - name: 5. 엑셀 파일 수집기 실행 (가상 모니터 환경 탑재!)
+    - name: 실행
       run: |
         xvfb-run -a python ETF_collector.py
-
-    - name: 6. 구글 시트 일괄 변환 및 업로드 실행
-      run: |
         python 일괄변환기.py
 
-    # 💡 [에러 해결] 필요 없는 '분석기.py' 실행 단계를 삭제했습니다! (분석은 app.py가 알아서 합니다)
-
-    - name: 7. 수집 데이터 깃허브 영구 저장 (Commit & Push)
+    - name: 저장 (충돌 방지)
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add *.xlsx *.xls *.csv
-        git commit -m "🤖 일일 수집 및 업로드 완료: $(date +'%Y-%m-%d')" || echo "No changes to commit"
-        git push
+        git add .
+        git commit -m "🤖 안정화 버전 일일 수집 완료" || exit 0
+        git pull --rebase origin main
+        git push origin main
