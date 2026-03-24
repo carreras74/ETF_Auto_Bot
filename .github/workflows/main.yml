@@ -23,14 +23,12 @@ jobs:
         sudo apt-get install -y xvfb
         pip install -r requirements.txt
 
-    - name: 4. 구글 시트 비밀키(JSON) 생성
+    - name: 4. 구글 시트 비밀키(JSON) 복원
       env:
-        GCP_KEY: ${{ secrets.GCP_KEY }}
+        GCP_KEY_BASE64: ${{ secrets.GCP_KEY }}
       run: |
-        # 💡 [방탄 로직] EOF를 따옴표로 감싸면 내부 변수가 변질되지 않습니다.
-        cat <<'EOF' > google_key.json
-        ${{ secrets.GCP_KEY }}
-        EOF
+        # 💡 외계어(Base64)를 읽어서 다시 깨끗한 JSON 파일로 해독합니다.
+        echo "$GCP_KEY_BASE64" | base64 --decode > google_key.json
 
     - name: 실행
       run: |
