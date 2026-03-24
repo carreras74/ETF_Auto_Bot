@@ -6,6 +6,7 @@ import re
 import time
 import gspread
 from datetime import datetime
+import FinanceDataReader as fdr  # 💡 [핵심 엔진] 주가 데이터를 가져오기 위해 부활!
 
 # =========================================
 # 1. 구글 시트 및 환경 설정
@@ -61,9 +62,31 @@ def read_etf_data(filepath):
         return None, None, None, None
 
 # =========================================
-# 2. 메인 통합 로직 (안정성 강화)
+# 2. 메인 통합 로직 (주가 수집 엔진 탑재)
 # =========================================
 def process_integration():
+    print("⏳ [준비] 한국거래소(KRX) 전 종목 코드표를 불러오는 중입니다...")
+    try:
+        krx_df = fdr.StockListing('KRX')
+        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+    except Exception as e:
+        print(f"⚠️ KRX 종목코드 로드 실패 (주가 가져오기 불가): {e}")
+        name_to_code = {}
+
+    # 💡 [마법의 함수] 종목명과 날짜를 주면 그날의 종가를 찾아옵니다!
+    def get_price(stock_name, target_date_str):
+        if stock_name not in name_to_code: return 0
+        code = name_to_code[stock_name]
+        try:
+            dt = pd.to_datetime(target_date_str)
+            # 휴일/주말을 감안해 7일 전부터 검색 후 '가장 마지막 데이터(가장 최근 평일)'를 사용
+            start_dt = dt - pd.Timedelta(days=7)
+            price_df = fdr.DataReader(code, start_dt.strftime('%Y-%m-%d'), dt.strftime('%Y-%m-%d'))
+            if not price_df.empty:
+                return int(price_df['Close'].iloc[-1])
+        except: pass
+        return 0
+
     all_files = glob.glob(os.path.join(current_folder, "*.[xX][lL][sS]*")) + glob.glob(os.path.join(current_folder, "*.csv"))
     
     etf_groups = {}
@@ -88,7 +111,6 @@ def process_integration():
                 ws = sh.add_worksheet(title=title, rows="1000", cols="60")
                 time.sleep(1)
 
-            # 💡 [보강] 시트가 비어있어도 에러 안 나게 처리
             existing_data_all = ws.get_all_values()
             existing_dates = [row[0] for row in existing_data_all if row] if existing_data_all else []
             
@@ -99,13 +121,16 @@ def process_integration():
                 for i, h in enumerate(headers):
                     if "_수량" in h:
                         stock_name = h.replace("_수량", "")
-                        # 💡 [에러방지] 열 개수가 안 맞아도 0으로 처리
                         val = last_row[i] if i < len(last_row) else "0"
                         prev_shares[stock_name] = float(str(val).replace(',','')) if val else 0
 
             for f in files:
                 date_match = re.search(r'(\d{4}-\d{2}-\d{2})|(\d{8})', f)
                 file_date = date_match.group() if date_match else datetime.now().strftime("%Y-%m-%d")
+                
+                # 'YYYYMMDD' 형식을 'YYYY-MM-DD'로 통일하여 저장 및 검색
+                if len(file_date) == 8 and "-" not in file_date:
+                    file_date = f"{file_date[:4]}-{file_date[4:6]}-{file_date[6:]}"
 
                 if file_date in existing_dates:
                     print(f"   ⏭️ {file_date} 건너뜀.")
@@ -124,7 +149,17 @@ def process_integration():
                     s_qty = r[q_col]
                     
                     diff = s_qty - prev_shares.get(s_name, s_qty)
-                    diff_str = f"🔴▲{int(diff):,}" if diff > 0 else (f"🔵▼{int(abs(diff)):,}" if diff < 0 else "0")
+                    
+                    # 💡 [핵심 복구 로직] 주가를 가져와서 문자열에 합칩니다!
+                    price = get_price(s_name, file_date)
+                    price_str = f" | ₩{price:,}" if price > 0 else " | ₩0"
+                    
+                    if diff > 0:
+                        diff_str = f"🔴▲{int(diff):,}{price_str}"
+                    elif diff < 0:
+                        diff_str = f"🔵▼{int(abs(diff)):,}{price_str}"
+                    else:
+                        diff_str = f"0{price_str}" # 변동 없을 때도 가격은 표시!
                     
                     headers.extend([s_name, f"{s_name}_증감", f"{s_name}_수량"])
                     new_row.extend([f"{s_weight}%", diff_str, f"{int(s_qty):,}"])
@@ -137,7 +172,7 @@ def process_integration():
                 
                 ws.append_row(new_row)
                 existing_dates.append(file_date)
-                print(f"   ✅ {file_date} 업로드 완료!")
+                print(f"   ✅ {file_date} 업로드 완료 (가격 데이터 포함)!")
                 time.sleep(1)
 
         except Exception as e:
