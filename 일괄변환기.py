@@ -6,7 +6,7 @@ import re
 import time
 import gspread
 from datetime import datetime
-import FinanceDataReader as fdr  # 💡 [핵심 엔진] 주가 데이터를 가져오기 위해 부활!
+import FinanceDataReader as fdr
 
 # =========================================
 # 1. 구글 시트 및 환경 설정
@@ -30,8 +30,7 @@ except Exception as e:
 
 def read_etf_data(filepath):
     try:
-        if filepath.endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(filepath)
+        if filepath.endswith(('.xls', '.xlsx')): df = pd.read_excel(filepath)
         else:
             try: df = pd.read_csv(filepath, encoding='utf-8-sig')
             except: df = pd.read_csv(filepath, encoding='cp949')
@@ -62,7 +61,7 @@ def read_etf_data(filepath):
         return None, None, None, None
 
 # =========================================
-# 2. 메인 통합 로직 (주가 수집 엔진 탑재)
+# 2. 메인 통합 로직 (초고속 캐시 메모리 엔진 탑재)
 # =========================================
 def process_integration():
     print("⏳ [준비] 한국거래소(KRX) 전 종목 코드표를 불러오는 중입니다...")
@@ -70,20 +69,32 @@ def process_integration():
         krx_df = fdr.StockListing('KRX')
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
     except Exception as e:
-        print(f"⚠️ KRX 종목코드 로드 실패 (주가 가져오기 불가): {e}")
+        print(f"⚠️ KRX 종목코드 로드 실패: {e}")
         name_to_code = {}
 
-    # 💡 [마법의 함수] 종목명과 날짜를 주면 그날의 종가를 찾아옵니다!
+    # 💡 [초고속 엔진] 한 번 찾은 종목은 한 달치 주가를 통째로 외워둡니다!
+    price_cache = {} 
+
     def get_price(stock_name, target_date_str):
         if stock_name not in name_to_code: return 0
         code = name_to_code[stock_name]
+        
+        # 기억에 없으면 한 달치 데이터를 싹 긁어와서 저장
+        if code not in price_cache:
+            try:
+                price_cache[code] = fdr.DataReader(code, '2026-02-20', datetime.now().strftime('%Y-%m-%d'))
+            except:
+                price_cache[code] = pd.DataFrame()
+                
+        df_price = price_cache[code]
+        if df_price.empty: return 0
+        
+        # 기억해둔 데이터에서 해당 날짜에 맞는 가격만 쏙 뽑아냅니다
         try:
-            dt = pd.to_datetime(target_date_str)
-            # 휴일/주말을 감안해 7일 전부터 검색 후 '가장 마지막 데이터(가장 최근 평일)'를 사용
-            start_dt = dt - pd.Timedelta(days=7)
-            price_df = fdr.DataReader(code, start_dt.strftime('%Y-%m-%d'), dt.strftime('%Y-%m-%d'))
-            if not price_df.empty:
-                return int(price_df['Close'].iloc[-1])
+            target_dt = pd.to_datetime(target_date_str)
+            past_data = df_price[df_price.index <= target_dt]
+            if not past_data.empty:
+                return int(past_data['Close'].iloc[-1])
         except: pass
         return 0
 
@@ -128,7 +139,6 @@ def process_integration():
                 date_match = re.search(r'(\d{4}-\d{2}-\d{2})|(\d{8})', f)
                 file_date = date_match.group() if date_match else datetime.now().strftime("%Y-%m-%d")
                 
-                # 'YYYYMMDD' 형식을 'YYYY-MM-DD'로 통일하여 저장 및 검색
                 if len(file_date) == 8 and "-" not in file_date:
                     file_date = f"{file_date[:4]}-{file_date[4:6]}-{file_date[6:]}"
 
@@ -150,16 +160,12 @@ def process_integration():
                     
                     diff = s_qty - prev_shares.get(s_name, s_qty)
                     
-                    # 💡 [핵심 복구 로직] 주가를 가져와서 문자열에 합칩니다!
                     price = get_price(s_name, file_date)
                     price_str = f" | ₩{price:,}" if price > 0 else " | ₩0"
                     
-                    if diff > 0:
-                        diff_str = f"🔴▲{int(diff):,}{price_str}"
-                    elif diff < 0:
-                        diff_str = f"🔵▼{int(abs(diff)):,}{price_str}"
-                    else:
-                        diff_str = f"0{price_str}" # 변동 없을 때도 가격은 표시!
+                    if diff > 0: diff_str = f"🔴▲{int(diff):,}{price_str}"
+                    elif diff < 0: diff_str = f"🔵▼{int(abs(diff)):,}{price_str}"
+                    else: diff_str = f"0{price_str}"
                     
                     headers.extend([s_name, f"{s_name}_증감", f"{s_name}_수량"])
                     new_row.extend([f"{s_weight}%", diff_str, f"{int(s_qty):,}"])
@@ -172,7 +178,7 @@ def process_integration():
                 
                 ws.append_row(new_row)
                 existing_dates.append(file_date)
-                print(f"   ✅ {file_date} 업로드 완료 (가격 데이터 포함)!")
+                print(f"   ✅ {file_date} 업로드 완료 (가격 포함)!")
                 time.sleep(1)
 
         except Exception as e:
