@@ -47,7 +47,7 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 테스트 속도를 위해 TIGER 선봉 유지
+# 테스트 속도를 위해 TIGER 선봉 유지!
 task_list = [
     {"brand": "TIGER", "etfs": tiger_rooms},
     {"brand": "TIME", "etfs": time_rooms},
@@ -57,7 +57,8 @@ task_list = [
 chrome_options = Options()
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
-chrome_options.add_argument('--window-size=1920x1080')
+# 💡 [핵심 패치 1] 가상 모니터 세로 길이를 5000픽셀로 대폭 늘려버립니다!
+chrome_options.add_argument('--window-size=1920,5000') 
 chrome_options.add_argument('--log-level=3')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 chrome_options.add_argument("--disable-blink-features=AutomationControlled")
@@ -99,38 +100,57 @@ try:
                 found_and_clicked = False
                 
                 if brand == "TIGER":
-                    # 1. 무식하게 스크롤을 여러 번 내려서 표를 강제로 로딩시킵니다.
-                    for step in range(1, 11):
-                        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
-                        time.sleep(1)
-                    
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    # 💡 [핵심 패치 2] 픽셀 단위(500px씩)로 무식하게 20번 찍어 누르며 스크롤을 강제합니다!
+                    for _ in range(20):
+                        driver.execute_script("window.scrollBy(0, 500);")
+                        time.sleep(0.5)
                     time.sleep(3)
                     
-                    # 2. 화면에 보이든 안 보이든, HTML 안에 있는 '엑셀다운로드' 중 무조건 맨 마지막(바닥) 것을 강제 클릭!
+                    # 💡 [핵심 패치 3] 아까 성공했던 '자산구성' 구역을 먼저 찾고, 없으면 3번째/마지막 버튼을 강제 클릭!
                     for _ in range(20): 
                         clicked = driver.execute_script("""
-                            var elements = document.querySelectorAll('a, button, span');
-                            var excelBtns = [];
-                            
-                            for (var i = 0; i < elements.length; i++) {
-                                var text = elements[i].innerText || elements[i].textContent || "";
-                                if (text.replace(/\\s+/g, '').indexOf('엑셀다운로드') !== -1) {
-                                    excelBtns.push(elements[i]);
+                            // 1순위: 아까 성공했던 '자산구성' 블록을 샅샅이 뒤집니다.
+                            var allDivs = Array.from(document.querySelectorAll('div, section, article'));
+                            var targetSection = null;
+                            for (var i = 0; i < allDivs.length; i++) {
+                                var txt = allDivs[i].innerText || allDivs[i].textContent || "";
+                                if (txt.replace(/\\s+/g, '').includes('자산구성(구성종목')) {
+                                    targetSection = allDivs[i];
+                                    break;
                                 }
                             }
                             
-                            if (excelBtns.length > 0) {
-                                var targetBtn = excelBtns[excelBtns.length - 1]; // 무조건 맨 마지막(바닥) 버튼
-                                targetBtn.click(); // 강제 자바스크립트 클릭!
+                            if (targetSection) {
+                                var btns = Array.from(targetSection.querySelectorAll('a, button, span'));
+                                var excelBtn = btns.find(function(b) {
+                                    var bTxt = b.innerText || b.textContent || "";
+                                    return bTxt.replace(/\\s+/g, '').includes('엑셀다운로드');
+                                });
+                                if (excelBtn) {
+                                    excelBtn.click();
+                                    return true;
+                                }
+                            }
+                            
+                            // 2순위: '자산구성' 구역을 못 찾으면 화면 전체의 엑셀 버튼 중 3번째나 마지막 놈을 쏩니다!
+                            var fallbackBtns = Array.from(document.querySelectorAll('a, button, span')).filter(function(el) {
+                                var txt = el.innerText || el.textContent || "";
+                                return txt.replace(/\\s+/g, '').includes('엑셀다운로드');
+                            });
+                            
+                            if (fallbackBtns.length >= 3) {
+                                fallbackBtns[2].click();
+                                return true;
+                            } else if (fallbackBtns.length > 0) {
+                                fallbackBtns[fallbackBtns.length - 1].click();
                                 return true;
                             }
+                            
                             return false;
                         """)
-                        
                         if clicked:
                             found_and_clicked = True
-                            print(f"📥 [{brand}] {etf_name} 자산구성 엑셀 불도저 클릭 완료!", end="\r", flush=True)
+                            print(f"📥 [{brand}] {etf_name} 자산구성 엑셀 강제 클릭 완료!", end="\r", flush=True)
                             break
                         time.sleep(1)
                         
