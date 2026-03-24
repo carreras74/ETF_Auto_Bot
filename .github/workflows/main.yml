@@ -41,6 +41,10 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # 💡 [핵심 보안] 열쇠 파일이 있으면 삭제하고 push 하도록 명령
+        git rm --cached google_key.json || echo "No file in index" 
+        
         git add .
         git commit -m "🤖 안정화 버전 일일 수집 완료" || exit 0
         git pull --rebase origin main
