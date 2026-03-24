@@ -15,15 +15,7 @@ download_dir = target_dir
 date_time = datetime.now().strftime("%Y-%m-%d") 
 date_koact = datetime.now().strftime("%Y%m%d")  
 
-print(f"📍 작업 위치: {target_dir}", flush=True)
-
-# --- 종목 리스트 (기존과 동일) ---
-tiger_rooms = {
-    "코리아테크액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007",
-    "AI코리아그로스액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7365040005",
-    "퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7387280001",
-    "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
-}
+# --- 안정적인 16개 종목 리스트 ---
 time_rooms = {
     "코스닥액티브": "https://timeetf.co.kr/m11_view.php?idx=24&cate=002",
     "플러스배당액티브": "https://timeetf.co.kr/m11_view.php?idx=12&cate=002",
@@ -45,14 +37,16 @@ koact_rooms = {
     "코스닥액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFU6"
 }
 
+task_list = [
+    {"brand": "TIME", "etfs": time_rooms},
+    {"brand": "KoAct", "etfs": koact_rooms}
+]
+
 chrome_options = Options()
 chrome_options.add_argument('--headless=new')
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--window-size=1920x1080')
-chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-chrome_options.add_argument("--lang=ko_KR")
-
 chrome_options.add_experimental_option("prefs", {
     "download.default_directory": download_dir,
     "download.prompt_for_download": False,
@@ -62,57 +56,21 @@ chrome_options.add_experimental_option("prefs", {
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
 try:
-    print("🚀 [전 종목 완전 수집] 불도저 모드 가동!", flush=True)
-
-    # 1. TIGER 특수 타격
-    print("\n🏢 [TIGER] 집중 수집 공정...", flush=True)
-    for etf_name, room_url in tiger_rooms.items():
-        try:
-            driver.get(room_url)
-            time.sleep(7) # 충분한 로딩 시간
-            before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-            
-            # 💡 [투망 로직] 화면 내 모든 버튼/링크 중 '엑셀' 단어가 포함된 것을 무조건 클릭
-            found = driver.execute_script("""
-                var targets = Array.from(document.querySelectorAll('a, button, span'));
-                var excelBtn = targets.find(el => el.innerText.includes('엑셀다운로드') && el.offsetParent !== null);
-                if(!excelBtn) excelBtn = targets.find(el => el.innerText.includes('엑셀다운로드')); // 안보여도 일단 클릭
-                
-                if(excelBtn) {
-                    excelBtn.scrollIntoView({block: 'center'});
-                    excelBtn.click();
-                    return true;
-                }
-                return false;
-            """)
-            
-            if found:
-                time.sleep(8) # 다운로드 대기
-                after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                new_files = list(after_files - before_files)
-                if new_files:
-                    old_path = new_files[0]
-                    final_path = os.path.join(target_dir, f"TIGER {etf_name}_{date_koact}{os.path.splitext(old_path)[1]}")
-                    if os.path.exists(final_path): os.remove(final_path)
-                    shutil.move(old_path, final_path)
-                    print(f"  ✅ {etf_name} 성공!", flush=True)
-                else: print(f"  ⚠️ {etf_name} 다운로드 지연", flush=True)
-            else: print(f"  ❌ {etf_name} 버튼 실종", flush=True)
-        except Exception as e: print(f"  ⚠️ {etf_name} 에러: {e}", flush=True)
-
-    # 2. TIME & KoAct (검증된 로직)
-    for brand, rooms in [("TIME", time_rooms), ("KoAct", koact_rooms)]:
-        print(f"\n🏢 [{brand}] 안정 수집 공정...", flush=True)
-        for etf_name, room_url in rooms.items():
+    print(f"🚀 [TIME/KoAct 전용] 안정 수집 시작!", flush=True)
+    for task in task_list:
+        brand = task["brand"]
+        for etf_name, room_url in task["etfs"].items():
             try:
                 driver.get(room_url)
                 time.sleep(4)
                 before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
-                time.sleep(1)
                 
+                # 💡 검증된 스크롤 및 클릭 로직
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+                time.sleep(2)
                 xpath = "//a[contains(., '엑셀')] | //button[contains(., '엑셀')] | //a[contains(@class, 'excel')]"
                 btns = driver.find_elements(By.XPATH, xpath)
+                
                 if btns:
                     driver.execute_script("arguments[0].click();", btns[-1])
                     time.sleep(5)
@@ -125,9 +83,9 @@ try:
                         final_path = os.path.join(target_dir, final_name)
                         if os.path.exists(final_path): os.remove(final_path)
                         shutil.move(old_path, final_path)
-                        print(f"  ✅ {etf_name} 성공!", flush=True)
-            except: continue
-
+                        print(f"  ✅ {brand} {etf_name} 수집 성공!", flush=True)
+            except Exception as e:
+                print(f"  ⚠️ {etf_name} 에러: {e}", flush=True)
 finally:
     driver.quit()
-    print("\n✨ 전 공정 종료!", flush=True)
+    print("\n✨ 수집 공정 완료!", flush=True)
