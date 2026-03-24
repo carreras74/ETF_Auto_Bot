@@ -27,8 +27,10 @@ jobs:
       env:
         GCP_KEY_BASE64: ${{ secrets.GCP_KEY }}
       run: |
-        # 💡 외계어(Base64)를 읽어서 다시 깨끗한 JSON 파일로 해독합니다.
+        # 💡 외계어를 해독해서 원본과 100% 똑같은 JSON 파일을 만듭니다.
         echo "$GCP_KEY_BASE64" | base64 --decode > google_key.json
+        # (확인용) 생성된 파일의 첫 줄이 { 인지 살짝 확인 (보안상 값은 안 보임)
+        head -c 1 google_key.json
 
     - name: 실행
       run: |
