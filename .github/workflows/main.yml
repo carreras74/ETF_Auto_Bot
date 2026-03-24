@@ -27,7 +27,7 @@ jobs:
       env:
         GCP_KEY: ${{ secrets.GCP_KEY }}
       run: |
-        # 💡 따옴표로 감싸서 내용이 변질되지 않게 강제로 박아넣습니다.
+        # 💡 [방탄 로직] EOF를 따옴표로 감싸면 내부 변수가 변질되지 않습니다.
         cat <<'EOF' > google_key.json
         ${{ secrets.GCP_KEY }}
         EOF
