@@ -1,7 +1,10 @@
 import os
+import sys
 import time
 import glob
 import shutil
+import json
+import gspread
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -18,6 +21,39 @@ date_koact = datetime.now().strftime("%Y%m%d")
 print(f"📍 작업 위치: {target_dir}")
 print(f"📅 TIME 날짜: {date_time} / KoAct 날짜: {date_koact}\n")
 
+# =====================================================================
+# 💡 [스마트 레이더] 수집하러 가기 전에 구글 시트부터 검사합니다!
+# =====================================================================
+print("🔍 [스마트 체크] 구글 시트에 오늘 데이터가 있는지 먼저 확인합니다...")
+try:
+    key_path = os.path.join(target_dir, 'google_key.json')
+    if os.path.exists(key_path):
+        gc = gspread.service_account(filename=key_path)
+        sh = gc.open_by_key("1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA")
+        
+        # 대표적으로 'TIME코스닥액티브' 시트의 날짜를 검사합니다.
+        try:
+            ws = sh.worksheet("TIME코스닥액티브")
+            existing_dates = ws.col_values(1) # A열(Date) 전체 가져오기
+            
+            if date_time in existing_dates:
+                print(f"🎯 [알림] 구글 시트에 이미 오늘({date_time}) 데이터가 존재합니다!")
+                print("🛑 불필요한 웹 수집을 생략하고 프로그램을 종료합니다. (1초 컷 초고속 퇴근 🚀)")
+                sys.exit(0) # 💡 여기서 로봇을 즉시 퇴근시킵니다!
+            else:
+                print(f"🚀 오늘({date_time}) 데이터가 없습니다. 본격적으로 수집을 시작합니다!")
+        except Exception as e:
+            print("⚠️ 'TIME코스닥액티브' 탭을 아직 찾을 수 없습니다. 수집을 강행합니다.")
+    else:
+        print("⚠️ google_key.json 파일이 없어 시트 확인을 건너뛰고 수집을 시작합니다.")
+except Exception as e:
+    print(f"⚠️ 구글 시트 사전 점검 중 에러 발생 (수집 강행): {e}")
+print("=====================================================================\n")
+
+
+# =====================================================================
+# 기존 수집 로직 시작
+# =====================================================================
 time_rooms = {
     "코스닥액티브": "https://timeetf.co.kr/m11_view.php?idx=24&cate=002",
     "플러스배당액티브": "https://timeetf.co.kr/m11_view.php?idx=12&cate=002",
@@ -124,8 +160,6 @@ try:
                             
                         final_path = os.path.join(target_dir, final_name)
                         
-                        # 💡 [핵심 에러 치료] 다운받은 파일 이름이 최종 이름과 다를 때만 덮어쓰기 진행!
-                        # (같으면 자기가 자기를 삭제하는 자폭 버그 원천 차단)
                         if new_file_path != final_path:
                             if os.path.exists(final_path): os.remove(final_path)
                             shutil.move(new_file_path, final_path)
