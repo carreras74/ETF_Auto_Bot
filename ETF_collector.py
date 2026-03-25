@@ -123,8 +123,13 @@ try:
                         else: final_name = f"{brand} {etf_name}_{date_koact}{ext}"
                             
                         final_path = os.path.join(target_dir, final_name)
-                        if os.path.exists(final_path): os.remove(final_path)
-                        shutil.move(new_file_path, final_path)
+                        
+                        # 💡 [핵심 패치] 새로 받은 파일 이름이 최종 목표 이름과 다를 때만 덮어쓰기 로직 실행!
+                        # 이렇게 하면 이름이 우연히 똑같을 때 자기가 자기를 삭제하는 바보 같은 짓을 막습니다.
+                        if os.path.abspath(new_file_path) != os.path.abspath(final_path):
+                            if os.path.exists(final_path): os.remove(final_path)
+                            shutil.move(new_file_path, final_path)
+                            
                         print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ")
                     else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.")
                 else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.")
@@ -135,16 +140,12 @@ finally:
     time.sleep(2)
     driver.quit()
 
-# 💡 [핵심 패치] 쓰레기 파일 삭제 로직 개선
 # 절대 지워지면 안 되는 소중한 파일들의 이름을 이곳에 적어줍니다.
 safe_files = ["매입장부.xlsx"] 
 
 print("\n🧹 찌꺼기 파일 청소 중...")
 for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
     fname = os.path.basename(f)
-    
-    # 1. 파일 이름이 보호 목록(safe_files)에 있으면 무시
-    # 2. 크롤링으로 저장한 정상적인 ETF 파일("TIME"이나 "KoAct" 포함)이면 무시
     if fname not in safe_files and "TIME" not in fname and "KoAct" not in fname:
         try: 
             os.remove(f)
