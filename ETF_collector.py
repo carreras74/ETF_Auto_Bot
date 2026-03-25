@@ -11,10 +11,9 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
 # 1. 경로 및 날짜 설정
-target_dir = os.path.dirname(os.path.abspath(__file__))
+target_dir = os.getcwd()
 download_dir = target_dir
 
-# 한국 시간 기준으로 날짜 생성
 date_time = datetime.now().strftime("%Y-%m-%d") 
 date_koact = datetime.now().strftime("%Y%m%d")  
 
@@ -44,19 +43,13 @@ koact_rooms = {
     "코스닥액티브": "https://www.samsungactive.co.kr/etf/view.do?id=2ETFU6"
 }
 
-task_list = [
-    {"brand": "TIME", "etfs": time_rooms},
-    {"brand": "KoAct", "etfs": koact_rooms}
-]
-
 # 3. 브라우저 설정
 chrome_options = Options()
+chrome_options.add_argument('--headless')
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--window-size=1920x1080')
-chrome_options.add_argument('--log-level=3')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 
 chrome_options.add_experimental_option("prefs", {
     "download.default_directory": download_dir,
@@ -67,50 +60,41 @@ chrome_options.add_experimental_option("prefs", {
 })
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-    "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
-})
 
 try:
-    print("🚀 [수집기 가동] 16개 ETF 포트폴리오 수집 시작!")
+    print("🚀 [수집 공정 가동] 불필요한 체크 없이 즉시 수집을 시작합니다!")
 
-    for task in task_list:
-        brand = task["brand"]
-        rooms = task["etfs"]
-        print(f"\n=========================================")
-        print(f"🏢 [{brand}] 운용사 데이터 추출...")
-        
-        for etf_name, room_url in rooms.items():
+    for brand, rooms in [("TIME", time_rooms), ("KoAct", koact_rooms)]:
+        print(f"\n🏢 [{brand}] 운용사 접속 중...")
+        for etf_name, url in rooms.items():
             try:
-                driver.get(room_url)
-                time.sleep(5) # 페이지 로딩 대기
+                driver.get(url)
+                time.sleep(6) # 페이지 로딩을 위한 충분한 대기
                 
-                # 엑셀 버튼 찾기 (가장 안정적인 방식)
+                # 가장 검증된 XPath 방식
                 xpath_excel = (
-                    "//a[contains(@class, 'excel') or contains(text(), '엑셀')] | "
+                    "//a[contains(@class, 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
                     "//button[contains(@class, 'excel') or contains(text(), '엑셀')] | "
                     "//img[contains(@alt, '엑셀')]/parent::a"
                 )
                 
-                excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
-                if excel_buttons:
-                    target_button = excel_buttons[-1] 
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_button)
+                excel_btns = driver.find_elements(By.XPATH, xpath_excel)
+                if excel_btns:
+                    target_btn = excel_btns[-1] 
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_btn)
                     time.sleep(1)
                     
                     before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                    driver.execute_script("arguments[0].click();", target_button)
+                    driver.execute_script("arguments[0].click();", target_btn)
                     
-                    # 파일 다운로드 대기 (최대 15초)
+                    # 다운로드 확인 (최대 15초)
                     new_file_path = None
                     for _ in range(15):
                         time.sleep(1)
-                        after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                        new_files = after_files - before_files
-                        excel_files = [f for f in new_files if f.endswith(('.xlsx', '.xls', '.csv')) and '.crdownload' not in f]
-                        
-                        if excel_files:
-                            new_file_path = list(excel_files)[0]
+                        diff = set(glob.glob(os.path.join(download_dir, "*.*"))) - before_files
+                        excels = [f for f in diff if f.endswith(('.xlsx', '.xls', '.csv')) and '.crdownload' not in f]
+                        if excels:
+                            new_file_path = list(excels)[0]
                             break
                     
                     if new_file_path:
@@ -119,27 +103,16 @@ try:
                         else: final_name = f"{brand} {etf_name}_{date_koact}{ext}"
                             
                         final_path = os.path.join(target_dir, final_name)
-                        
-                        # 파일 이름 변경 및 덮어쓰기
-                        if new_file_path != final_path:
-                            if os.path.exists(final_path): os.remove(final_path)
-                            shutil.move(new_file_path, final_path)
-                            
-                        print(f"✅ [{brand}] {etf_name} 수집 성공!")
-                    else: print(f"⚠️ [{brand}] {etf_name} 다운로드 지연")
-                else: print(f"❌ [{brand}] {etf_name} 버튼을 찾을 수 없음")
-            except Exception as e: print(f"❌ [{brand}] {etf_name} 에러: {e}")
+                        if os.path.exists(final_path): os.remove(final_path)
+                        shutil.move(new_file_path, final_path)
+                        print(f"✅ {etf_name} 수집 성공!")
+                    else: print(f"⚠️ {etf_name} 다운로드 지연")
+                else: print(f"❌ {etf_name} 버튼을 찾을 수 없음")
+            except Exception as e:
+                print(f"❌ {etf_name} 에러 발생")
             time.sleep(2)
 
 finally:
     driver.quit()
-
-# 4. 마무리 청소 (불필요한 파일 삭제)
-print("\n🧹 찌꺼기 파일 정리 중...")
-for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
-    fname = os.path.basename(f)
-    if "TIME" not in fname and "KoAct" not in fname:
-        try: os.remove(f)
-        except: pass
 
 print("\n✨ 16개 ETF 수집 공정 완료!")
