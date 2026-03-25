@@ -14,7 +14,7 @@ except ImportError:
     install_package("gspread")
     import gspread
 
-# 💡 [시즌 2 핵심 엔진] 파이낸스 데이터 리더 장착
+# 💡 [시즌 3 핵심 엔진] 파이낸스 데이터 리더 장착
 try: import FinanceDataReader as fdr
 except ImportError:
     install_package("finance-datareader")
@@ -28,7 +28,7 @@ try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [비중 + 수량증감 + 주가 추적 모터] 시즌2 변환기 실행 중...\n")
+print("🚀 [비중 + 수량증감 + 전체 과거 주가 장착 모터] 시즌3 변환기 실행 중...\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
@@ -46,23 +46,24 @@ except Exception as e:
     google_connected = False
 print("=========================================\n")
 
-# =====================================================================
-# 💡 [시즌 2 핵심 패치] KRX 전 종목 데이터 단 1초만에 캐싱 (사전 베이킹)
-# =====================================================================
 print("=========================================")
-print("📈 한국거래소(KRX) 전체 주가/등락률 초고속 스캔 중...")
+print("📈 한국거래소(KRX) 전체 종목코드 매핑 중...")
 try:
     krx_df = fdr.StockListing('KRX')
     krx_dict = {}
+    name_to_code = {} # 종목명 -> 종목코드 변환기
     for _, row in krx_df.iterrows():
-        krx_dict[str(row['Name']).strip()] = {
+        name = str(row['Name']).strip()
+        krx_dict[name] = {
             'Close': row['Close'],
             'ChagesRatio': row['ChagesRatio']
         }
-    print(f"✅ 총 {len(krx_dict):,}개 종목 주가 데이터 장전 완료!")
+        name_to_code[name] = str(row['Code'])
+    print(f"✅ 총 {len(krx_dict):,}개 종목 코드 장전 완료!")
 except Exception as e:
-    print(f"⚠️ 주가 스캔 실패 (기존 방식으로 진행): {e}")
+    print(f"⚠️ 코드 스캔 실패: {e}")
     krx_dict = {}
+    name_to_code = {}
 print("=========================================\n")
 
 
@@ -78,6 +79,18 @@ if not all_files:
     try: input("엔터를 누르면 종료됩니다...")
     except: pass
     exit()
+
+# 💡 [Pro 패치 1] 수집된 파일들 중 '가장 오래된 날짜'를 찾아냅니다.
+all_dates = []
+for f in all_files:
+    date_match = re.search(r'(\d{4}-\d{2}-\d{2}|\d{8})', os.path.basename(f))
+    if date_match:
+        raw_date = date_match.group()
+        if len(raw_date) == 8: all_dates.append(f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}")
+        else: all_dates.append(raw_date)
+
+global_start_date = min(all_dates) if all_dates else "2024-01-01"
+global_stock_hist_cache = {} # 종목별 과거 주가를 전부 저장해둘 거대한 창고
 
 etf_groups = {}
 for f in all_files:
@@ -129,12 +142,35 @@ def read_etf_data(filepath):
         raise ValueError("종목명이나 비중 컬럼을 찾을 수 없습니다.")
 
 for etf_name, files_info in etf_groups.items():
-    print(f"▶️ [{etf_name}] 수량/주가 추적 및 업로드 중...")
+    print(f"▶️ [{etf_name}] 수량 및 과거 전체 주가 추적 업로드 중...")
     
     files_info.sort(key=lambda x: x['date'])
-    base_file = files_info[0]['file']
     
     try:
+        # 💡 [Pro 패치 2] 이 ETF에 필요한 모든 종목의 "과거 주가"를 미리 다운로드합니다.
+        all_stocks_in_etf = set()
+        for info in files_info:
+            try:
+                r_df, r_n_col, r_w_col, _ = read_etf_data(info['file'])
+                top20_names = r_df.dropna(subset=[r_n_col]).sort_values(by=r_w_col, ascending=False).head(20)[r_n_col].tolist()
+                all_stocks_in_etf.update(top20_names)
+            except: pass
+        
+        for st_name in all_stocks_in_etf:
+            if st_name not in global_stock_hist_cache:
+                code = name_to_code.get(st_name)
+                if code:
+                    try:
+                        temp_df = fdr.DataReader(code, global_start_date)
+                        temp_df.index = temp_df.index.strftime('%Y-%m-%d')
+                        global_stock_hist_cache[st_name] = temp_df[['Close', 'Change']].to_dict('index')
+                    except:
+                        global_stock_hist_cache[st_name] = {}
+                else:
+                    global_stock_hist_cache[st_name] = {}
+
+        # 데이터 정리 시작
+        base_file = files_info[0]['file']
         b_df, n_col, w_col, q_col = read_etf_data(base_file)
         
         b_df = b_df[b_df[n_col].astype(str).str.strip() != '']
@@ -149,7 +185,6 @@ for etf_name, files_info in etf_groups.items():
         prev_qty = {} 
         is_first_day = True 
         
-        # 💡 반복문을 돌 때 '오늘이 가장 최신 파일(마지막 날)인지' 확인하기 위해 enumerate 사용!
         for i, info in enumerate(files_info):
             is_last_day = (i == len(files_info) - 1)
             
@@ -176,14 +211,17 @@ for etf_name, files_info in etf_groups.items():
                 else:
                     w = 0; q = 0
                     
-                # 💡 [시즌 2 마법 패치] 최신 날짜(오늘)에만 주가/등락률 텍스트를 장착합니다!
+                # 💡 [Pro 패치 3] 캐시에서 해당 날짜의 "진짜 과거 주가"를 정확히 꺼내옵니다!
                 price_str = ""
-                if is_last_day and krx_dict:
-                    p_info = krx_dict.get(st_name)
-                    if p_info:
-                        p = p_info.get('Close', 0)
-                        r = p_info.get('ChagesRatio', 0.0)
-                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
+                if st_name in global_stock_hist_cache and fdate in global_stock_hist_cache[st_name]:
+                    p = global_stock_hist_cache[st_name][fdate]['Close']
+                    r = global_stock_hist_cache[st_name][fdate]['Change'] * 100 # FDR 등락률은 소수점이므로 100을 곱함
+                    price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
+                elif is_last_day and krx_dict and st_name in krx_dict:
+                    # 혹시 오늘 데이터가 캐시에 없으면 KRX 실시간 정보로 보완
+                    p = krx_dict[st_name]['Close']
+                    r = krx_dict[st_name]['ChagesRatio']
+                    price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
                         
                 if is_first_day:
                     diff_str = f"-{price_str}" 
@@ -212,7 +250,7 @@ for etf_name, files_info in etf_groups.items():
         
         out_name = f"통합완료_{etf_name}.csv"
         final_df.to_csv(os.path.join(current_folder, out_name), index=False, encoding='utf-8-sig')
-        print(f"   => 💾 PC 저장 (수량/주가 데이터 포함): {out_name}")
+        print(f"   => 💾 PC 저장 (전체 주가 데이터 장착 완료): {out_name}")
         
         if google_connected:
             try:
@@ -233,7 +271,7 @@ for etf_name, files_info in etf_groups.items():
     except Exception as e:
         print(f"❌ 실패 [{etf_name}]: {e}")
 
-print("\n🎉 모든 수량/주가 추적 공정이 완벽하게 완료되었습니다!")
+print("\n🎉 모든 수량 및 전체 과거 주가 추적 공정이 완벽하게 완료되었습니다!")
 try:
     input("엔터(Enter)를 누르면 창이 닫힙니다...")
 except EOFError:
