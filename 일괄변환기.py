@@ -33,24 +33,28 @@ def read_etf_data(filepath):
             try: df = pd.read_csv(filepath, encoding='utf-8-sig')
             except: df = pd.read_csv(filepath, encoding='cp949')
 
-        # 💡 [핵심 패치 1] 파일 첫 줄이 이미 제목인지 바로 검사! (TIME 그룹 호환용)
-        col_strs = [str(c).replace(' ', '') for c in df.columns]
-        has_valid_header = any('종목' in c or '자산' in c or '명칭' in c for c in col_strs)
-        
-        if not has_valid_header:
-            header_found = False
+        # 💡 [초정밀 양손잡이 파서] 종목명, 비중, 수량 세 가지가 한 줄에 다 있어야 진짜 헤더로 인정!
+        def is_real_header(row_vals):
+            strs = [str(x).replace(' ', '') for x in row_vals]
+            has_name = any(('종목' in s or '자산' in s or '명' in s) and '코드' not in s for s in strs)
+            has_weight = any('비중' in s or '비율' in s for s in strs)
+            has_qty = any('수량' in s or '주식수' in s or '주수' in s for s in strs)
+            return has_name and has_weight and has_qty
+
+        header_found = False
+        if is_real_header(df.columns):
+            header_found = True
+        else:
             for i, row in df.iterrows():
-                row_strs = [str(x).replace(' ', '') for x in row.values]
-                if any('종목' in s or '자산' in s or '명칭' in s for s in row_strs):
+                if is_real_header(row.values):
                     df.columns = df.iloc[i]
                     df = df.iloc[i+1:].reset_index(drop=True)
                     header_found = True
                     break
-            if not header_found: return None, None, None, None
+                    
+        if not header_found: return None, None, None, None
 
         df.columns = [str(c).replace(' ', '').replace('\n', '').strip() for c in df.columns]
-        
-        # 💡 [핵심 패치 2] '종목코드'는 함정이므로 무조건 거르고, 진짜 '종목명'만 찾습니다!
         n_col = next((c for c in df.columns if ('종목' in c or '자산' in c or '명' in c) and '코드' not in c), None)
         w_col = next((c for c in df.columns if '비중' in c or '비율' in c), None)
         q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '주수'])), None)
@@ -58,12 +62,12 @@ def read_etf_data(filepath):
         if not all([n_col, w_col, q_col]): return None, None, None, None
 
         df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace('%','').str.replace(',',''), errors='coerce').fillna(0)
-        df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(',',''), errors='coerce').fillna(0)
+        df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(',','').replace('-','0'), errors='coerce').fillna(0)
         return df, n_col, w_col, q_col
     except: return None, None, None, None
 
 # =========================================
-# 2. 메인 통합 로직 (초고속 엔진 + 자동 정렬)
+# 2. 메인 통합 로직 (초고속 엔진 + 자동 열 맞춤)
 # =========================================
 def process_integration():
     print("⏳ [준비] 한국거래소(KRX) 코드표 로드 중...")
@@ -145,7 +149,6 @@ def process_integration():
                     print(f"   ⚠️ {file_date} 파일 파싱 실패 (건너뜀)")
                     continue
 
-                # 💡 [비중 뻥튀기 방지] 소수점인지 %인지 판단해서 예쁘게 만듭니다
                 sum_w = df[w_col].sum()
                 weight_multiplier = 100 if sum_w <= 1.5 else 1
 
