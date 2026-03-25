@@ -1,3 +1,5 @@
+name: ETF Auto Bot Schedule
+
 on:
   schedule:
     - cron: '50 21 * * 0-4' 
