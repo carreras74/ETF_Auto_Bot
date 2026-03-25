@@ -20,6 +20,7 @@ try:
         sys.exit(1)
 
     gc = gspread.service_account(filename=key_path)
+    # 대표님 구글 시트 고유 ID
     sh = gc.open_by_key("1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA")
     print("✅ [연결] 구글 시트 접속 성공!")
 except Exception as e:
@@ -27,13 +28,14 @@ except Exception as e:
     sys.exit(1)
 
 def read_etf_data(filepath):
+    """TIME(1행 시작)과 KoAct(3행 시작) 양식을 모두 읽어내는 양손잡이 파서"""
     try:
-        if filepath.endswith(('.xls', '.xlsx')): df = pd.read_excel(filepath)
+        if filepath.endswith(('.xls', '.xlsx')):
+            df = pd.read_excel(filepath)
         else:
             try: df = pd.read_csv(filepath, encoding='utf-8-sig')
             except: df = pd.read_csv(filepath, encoding='cp949')
 
-        # 💡 [초정밀 양손잡이 파서] 종목명, 비중, 수량 세 가지가 한 줄에 다 있어야 진짜 헤더로 인정!
         def is_real_header(row_vals):
             strs = [str(x).replace(' ', '') for x in row_vals]
             has_name = any(('종목' in s or '자산' in s or '명' in s) and '코드' not in s for s in strs)
@@ -64,31 +66,35 @@ def read_etf_data(filepath):
         df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace('%','').str.replace(',',''), errors='coerce').fillna(0)
         df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(',','').replace('-','0'), errors='coerce').fillna(0)
         return df, n_col, w_col, q_col
-    except: return None, None, None, None
+    except:
+        return None, None, None, None
 
 # =========================================
-# 2. 메인 통합 로직 (초고속 엔진 + 자동 열 맞춤)
+# 2. 메인 통합 로직 (초고속 엔진 + 거북이 방어선)
 # =========================================
 def process_integration():
     print("⏳ [준비] 한국거래소(KRX) 코드표 로드 중...")
     try:
         krx_df = fdr.StockListing('KRX')
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
-    except: name_to_code = {}
+    except:
+        name_to_code = {}
 
     price_cache = {}
     def get_price(stock_name, target_date_str):
         if stock_name not in name_to_code: return 0
         code = name_to_code[stock_name]
         if code not in price_cache:
-            try: price_cache[code] = fdr.DataReader(code, '2026-02-20', datetime.now().strftime('%Y-%m-%d'))
+            try:
+                # 최근 한 달 치 가격을 한 번에 가져와서 메모리에 저장(캐싱)
+                price_cache[code] = fdr.DataReader(code, '2026-02-20', datetime.now().strftime('%Y-%m-%d'))
             except: price_cache[code] = pd.DataFrame()
         
-        df_price = price_cache[code]
-        if df_price.empty: return 0
+        df_p = price_cache[code]
+        if df_p.empty: return 0
         try:
             target_dt = pd.to_datetime(target_date_str)
-            past_data = df_price[df_price.index <= target_dt]
+            past_data = df_p[df_p.index <= target_dt]
             if not past_data.empty: return int(past_data['Close'].iloc[-1])
         except: pass
         return 0
@@ -104,26 +110,27 @@ def process_integration():
                 etf_groups[clean_name].append(f)
 
     for etf_name, files in etf_groups.items():
-        print(f"\n▶️ [{etf_name}] 처리 중...")
+        print(f"\n▶️ [{etf_name}] 처리 시작...")
         files.sort()
         try:
             title = etf_name[:30]
             ws_list = [w.title for w in sh.worksheets()]
             if title in ws_list:
                 ws = sh.worksheet(title)
-                existing_data = ws.get_all_values()
-                if len(existing_data) > 0:
-                    df_sheet = pd.DataFrame(existing_data[1:], columns=existing_data[0])
+                existing_raw = ws.get_all_values()
+                if len(existing_raw) > 0:
+                    df_sheet = pd.DataFrame(existing_raw[1:], columns=existing_raw[0])
                 else: df_sheet = pd.DataFrame(columns=['Date'])
             else:
-                ws = sh.add_worksheet(title=title, rows="1000", cols="60")
+                ws = sh.add_worksheet(title=title, rows="1000", cols="100")
                 df_sheet = pd.DataFrame(columns=['Date'])
                 time.sleep(1)
 
             existing_dates = df_sheet['Date'].tolist() if 'Date' in df_sheet.columns else []
 
+            # 직전 날짜의 수량 데이터 로드
             prev_shares = {}
-            if not df_sheet.empty and len(df_sheet) > 0:
+            if not df_sheet.empty:
                 last_row = df_sheet.iloc[-1]
                 for col in df_sheet.columns:
                     if "_수량" in col:
@@ -141,14 +148,13 @@ def process_integration():
                     file_date = f"{file_date[:4]}-{file_date[4:6]}-{file_date[6:]}"
 
                 if file_date in existing_dates:
-                    print(f"   ⏭️ {file_date} 건너뜀.")
+                    print(f"   ⏭️ {file_date} 건너뜀 (이미 존재)")
                     continue
 
                 df, n_col, w_col, q_col = read_etf_data(f)
-                if df is None:
-                    print(f"   ⚠️ {file_date} 파일 파싱 실패 (건너뜀)")
-                    continue
+                if df is None: continue
 
+                # 비중 단위 자동 변환 (0.15 -> 15.00%)
                 sum_w = df[w_col].sum()
                 weight_multiplier = 100 if sum_w <= 1.5 else 1
 
@@ -162,6 +168,7 @@ def process_integration():
                     s_weight = r[w_col] * weight_multiplier
                     s_qty = r[q_col]
                     
+                    # 증감 계산 (최초 행은 0으로 표시)
                     if is_first_file: diff = 0
                     else: diff = s_qty - prev_shares.get(s_name, 0)
                     
@@ -172,29 +179,38 @@ def process_integration():
                     elif diff < 0: diff_str = f"🔵▼{int(abs(diff)):,}{price_str}"
                     else: diff_str = f"0{price_str}"
                     
+                    # 스마트 열 정렬
                     row_dict[s_name] = f"{s_weight:.2f}%"
                     row_dict[f"{s_name}_증감"] = diff_str
                     row_dict[f"{s_name}_수량"] = f"{int(s_qty):,}"
-                    
                     prev_shares[s_name] = s_qty
                     
                 new_rows.append(row_dict)
                 existing_dates.append(file_date)
-                print(f"   ✅ {file_date} 처리 완료!")
+                print(f"   ✅ {file_date} 가공 완료")
 
             if new_rows:
+                # 데이터프레임 합치기 및 빈칸 처리
                 df_new = pd.DataFrame(new_rows)
                 df_sheet = pd.concat([df_sheet, df_new], ignore_index=True)
                 df_sheet = df_sheet.fillna("")
                 
+                # 💡 구글 시트 업데이트 (거북이 엔진 작동)
                 ws.clear()
-                data_to_upload = [df_sheet.columns.values.tolist()] + df_sheet.astype(str).values.tolist()
-                ws.update(data_to_upload)
-                print(f"   🚀 [{etf_name}] 구글 시트 업데이트 완료!")
-                time.sleep(2)
+                final_data = [df_sheet.columns.values.tolist()] + df_sheet.astype(str).values.tolist()
+                ws.update(final_data)
+                
+                print(f"   🚀 [{etf_name}] 시트 업데이트 성공!")
+                print("   ⏳ 구글 API 과속 단속 방지를 위해 5초간 대기...")
+                time.sleep(5)
 
         except Exception as e:
-            print(f"   ❌ [{etf_name}] 에러: {e}")
+            if "429" in str(e):
+                print("\n🚨 [비상] 구글 단속 발생! 1분간 동면 후 다시 시작합니다...")
+                time.sleep(65)
+            else:
+                print(f"   ❌ [{etf_name}] 에러 발생: {e}")
 
 if __name__ == "__main__":
     process_integration()
+    print("\n✨ 모든 ETF 데이터 통합 공정이 완료되었습니다!")
