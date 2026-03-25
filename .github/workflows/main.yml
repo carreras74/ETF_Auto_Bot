@@ -7,6 +7,10 @@ on:
   push:
     branches: [main]
 
+# 💡 [핵심 패치] 깃허브 서버의 시계를 한국 시간(KST)으로 강제 고정합니다!
+env:
+  TZ: Asia/Seoul
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -31,12 +35,10 @@ jobs:
       env:
         GCP_KEY_BASE64: ${{ secrets.GCP_KEY }}
       run: |
-        # 💡 Base64 외계어를 다시 원본 JSON 파일로 해독합니다.
         echo -n "$GCP_KEY_BASE64" | base64 --decode > google_key.json
 
     - name: 5. 데이터 수집 및 업로드 실행 (핵심!)
       run: |
-        # 💡 빠졌던 실행 단계를 다시 넣었습니다!
         xvfb-run -a python ETF_collector.py
         python 일괄변환기.py
 
@@ -45,7 +47,6 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         
-        # 💡 [보안] 깃허브에 올리기 전에 열쇠 파일을 삭제하여 유출을 막습니다.
         rm -f google_key.json
         
         git add .
