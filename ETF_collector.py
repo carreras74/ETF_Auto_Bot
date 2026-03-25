@@ -135,11 +135,17 @@ finally:
     time.sleep(2)
     driver.quit()
 
-# 💡 [핵심 패치 1] 수집이 끝나면 찌꺼기 파일(1, 2, 3...)을 모조리 찾아내서 삭제합니다!
+# 💡 [핵심 패치] 쓰레기 파일 삭제 로직 개선
+# 절대 지워지면 안 되는 소중한 파일들의 이름을 이곳에 적어줍니다.
+safe_files = ["매입장부.xlsx"] 
+
 print("\n🧹 찌꺼기 파일 청소 중...")
 for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
     fname = os.path.basename(f)
-    if "TIME" not in fname and "KoAct" not in fname:
+    
+    # 1. 파일 이름이 보호 목록(safe_files)에 있으면 무시
+    # 2. 크롤링으로 저장한 정상적인 ETF 파일("TIME"이나 "KoAct" 포함)이면 무시
+    if fname not in safe_files and "TIME" not in fname and "KoAct" not in fname:
         try: 
             os.remove(f)
             print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}")
