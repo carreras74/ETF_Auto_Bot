@@ -14,7 +14,6 @@ except ImportError:
     install_package("gspread")
     import gspread
 
-# 💡 [시즌 3 핵심 엔진] 파이낸스 데이터 리더 장착
 try: import FinanceDataReader as fdr
 except ImportError:
     install_package("finance-datareader")
@@ -28,17 +27,15 @@ try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [비중 + 수량증감 + 전체 과거 주가 장착 모터] 시즌3 변환기 실행 중...\n")
+print("🚀 [스마트 어펜드 + 첫줄 절대 매칭 모터] 시즌4 변환기 실행 중...\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
 try:
     gc = gspread.service_account(filename=os.path.join(current_folder, 'google_key.json'))
-    
     # 💡 [주의] 구글 시트 주소를 반드시 다시 적어주세요!
     SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit?gid=1831966955#gid=1831966955' 
     sh = gc.open_by_url(SHEET_URL)
-    
     google_connected = True
     print(f"✅ 구글 시트 접속 완료! 문이 열렸습니다.")
 except Exception as e:
@@ -46,12 +43,11 @@ except Exception as e:
     google_connected = False
 print("=========================================\n")
 
-print("=========================================")
 print("📈 한국거래소(KRX) 전체 종목코드 매핑 중...")
 try:
     krx_df = fdr.StockListing('KRX')
     krx_dict = {}
-    name_to_code = {} # 종목명 -> 종목코드 변환기
+    name_to_code = {} 
     for _, row in krx_df.iterrows():
         name = str(row['Name']).strip()
         krx_dict[name] = {
@@ -59,13 +55,11 @@ try:
             'ChagesRatio': row['ChagesRatio']
         }
         name_to_code[name] = str(row['Code'])
-    print(f"✅ 총 {len(krx_dict):,}개 종목 코드 장전 완료!")
+    print(f"✅ 총 {len(krx_dict):,}개 종목 코드 장전 완료!\n")
 except Exception as e:
-    print(f"⚠️ 코드 스캔 실패: {e}")
+    print(f"⚠️ 코드 스캔 실패: {e}\n")
     krx_dict = {}
     name_to_code = {}
-print("=========================================\n")
-
 
 all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
              if f.endswith(('.csv', '.xlsx', '.xls')) 
@@ -79,18 +73,6 @@ if not all_files:
     try: input("엔터를 누르면 종료됩니다...")
     except: pass
     exit()
-
-# 💡 [Pro 패치 1] 수집된 파일들 중 '가장 오래된 날짜'를 찾아냅니다.
-all_dates = []
-for f in all_files:
-    date_match = re.search(r'(\d{4}-\d{2}-\d{2}|\d{8})', os.path.basename(f))
-    if date_match:
-        raw_date = date_match.group()
-        if len(raw_date) == 8: all_dates.append(f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}")
-        else: all_dates.append(raw_date)
-
-global_start_date = min(all_dates) if all_dates else "2024-01-01"
-global_stock_hist_cache = {} # 종목별 과거 주가를 전부 저장해둘 거대한 창고
 
 etf_groups = {}
 for f in all_files:
@@ -142,52 +124,68 @@ def read_etf_data(filepath):
         raise ValueError("종목명이나 비중 컬럼을 찾을 수 없습니다.")
 
 for etf_name, files_info in etf_groups.items():
-    print(f"▶️ [{etf_name}] 수량 및 과거 전체 주가 추적 업로드 중...")
-    
+    print(f"▶️ [{etf_name}] 분석 및 업데이트 시작...")
     files_info.sort(key=lambda x: x['date'])
     
     try:
-        # 💡 [Pro 패치 2] 이 ETF에 필요한 모든 종목의 "과거 주가"를 미리 다운로드합니다.
-        all_stocks_in_etf = set()
-        for info in files_info:
+        existing_df = pd.DataFrame()
+        worksheet = None
+        if google_connected:
+            try:
+                existing_sheets = [ws.title for ws in sh.worksheets()]
+                if etf_name in existing_sheets:
+                    worksheet = sh.worksheet(etf_name)
+                    data = worksheet.get_all_values()
+                    if len(data) > 1:
+                        existing_df = pd.DataFrame(data[1:], columns=data[0])
+            except Exception as e:
+                pass
+        
+        # =====================================================================
+        # 💡 [핵심 검증 1] 첫 줄(헤더)에 있는 기존 종목들의 이름표와 순서를 완벽히 기억합니다.
+        # =====================================================================
+        if not existing_df.empty and 'Date' in existing_df.columns:
+            last_gs_date = existing_df['Date'].max()
+            historical_cols = [c for c in existing_df.columns if c != 'Date' and not c.endswith('_증감')]
+        else:
+            last_gs_date = "1900-01-01"
+            historical_cols = []
+            
+        target_files = [f for f in files_info if f['date'] >= last_gs_date]
+        
+        if len(target_files) <= 1 and target_files and target_files[0]['date'] <= last_gs_date:
+            print(f"   ✅ 이미 최신 상태입니다. (마지막 업데이트: {last_gs_date}) 스킵!\n")
+            continue
+
+        print(f"   => 🔄 새로운 날짜 {len(target_files)-1}일치 데이터를 추가합니다.")
+        
+        new_dates = [f['date'] for f in target_files if f['date'] > last_gs_date]
+        all_stocks_in_new_files = set()
+        for info in target_files:
             try:
                 r_df, r_n_col, r_w_col, _ = read_etf_data(info['file'])
                 top20_names = r_df.dropna(subset=[r_n_col]).sort_values(by=r_w_col, ascending=False).head(20)[r_n_col].tolist()
-                all_stocks_in_etf.update(top20_names)
+                all_stocks_in_new_files.update(top20_names)
             except: pass
         
-        for st_name in all_stocks_in_etf:
-            if st_name not in global_stock_hist_cache:
-                code = name_to_code.get(st_name)
-                if code:
-                    try:
-                        temp_df = fdr.DataReader(code, global_start_date)
-                        temp_df.index = temp_df.index.strftime('%Y-%m-%d')
-                        global_stock_hist_cache[st_name] = temp_df[['Close', 'Change']].to_dict('index')
-                    except:
-                        global_stock_hist_cache[st_name] = {}
-                else:
+        global_stock_hist_cache = {}
+        for st_name in all_stocks_in_new_files:
+            code = name_to_code.get(st_name)
+            if code and new_dates:
+                try:
+                    temp_df = fdr.DataReader(code, min(new_dates))
+                    temp_df.index = temp_df.index.strftime('%Y-%m-%d')
+                    global_stock_hist_cache[st_name] = temp_df[['Close', 'Change']].to_dict('index')
+                except:
                     global_stock_hist_cache[st_name] = {}
 
-        # 데이터 정리 시작
-        base_file = files_info[0]['file']
-        b_df, n_col, w_col, q_col = read_etf_data(base_file)
-        
-        b_df = b_df[b_df[n_col].astype(str).str.strip() != '']
-        b_df = b_df[b_df[n_col].astype(str).str.lower() != 'nan']
-        b_df = b_df.dropna(subset=[n_col])
-        
-        first_day_top20 = b_df.sort_values(by=w_col, ascending=False).head(20)
-        standard_cols = first_day_top20[n_col].tolist()
-        
         all_rows = []
-        historical_new_cols = []
+        # historical_new_cols 변수에 기존 종목 순서를 먼저 박아놓습니다. (열 섞임 원천 차단)
+        historical_new_cols = list(historical_cols) 
         prev_qty = {} 
-        is_first_day = True 
         
-        for i, info in enumerate(files_info):
-            is_last_day = (i == len(files_info) - 1)
-            
+        for i, info in enumerate(target_files):
+            is_last_day = (i == len(target_files) - 1)
             fpath = info['file']
             fdate = info['date']
             
@@ -197,34 +195,41 @@ for etf_name, files_info in etf_groups.items():
             
             today_top20 = r_df.sort_values(by=r_w_col, ascending=False).head(20)
             
+            # =====================================================================
+            # 💡 [핵심 검증 2] 새로운 종목은 무조건 기존 종목을 건드리지 않고 '맨 뒤'에 추가
+            # =====================================================================
             for st_name in today_top20[r_n_col]:
-                if st_name not in standard_cols and st_name not in historical_new_cols:
+                if st_name not in historical_new_cols:
                     historical_new_cols.append(st_name)
                     
             row_dict = {'Date': fdate}
             today_data = r_df.set_index(r_n_col).to_dict('index')
             
-            for st_name in standard_cols + historical_new_cols:
+            # =====================================================================
+            # 💡 [핵심 검증 3] 데이터를 집어넣을 때 '종목명(이름표)'을 보고 그 자리에 꽂아 넣음
+            # =====================================================================
+            for st_name in historical_new_cols:
                 if st_name in today_data:
                     w = today_data[st_name][r_w_col]
                     q = today_data[st_name][r_q_col] if r_q_col else 0
                 else:
                     w = 0; q = 0
                     
-                # 💡 [Pro 패치 3] 캐시에서 해당 날짜의 "진짜 과거 주가"를 정확히 꺼내옵니다!
                 price_str = ""
-                if st_name in global_stock_hist_cache and fdate in global_stock_hist_cache[st_name]:
-                    p = global_stock_hist_cache[st_name][fdate]['Close']
-                    r = global_stock_hist_cache[st_name][fdate]['Change'] * 100 # FDR 등락률은 소수점이므로 100을 곱함
-                    price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
-                elif is_last_day and krx_dict and st_name in krx_dict:
-                    # 혹시 오늘 데이터가 캐시에 없으면 KRX 실시간 정보로 보완
-                    p = krx_dict[st_name]['Close']
-                    r = krx_dict[st_name]['ChagesRatio']
-                    price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
+                if fdate > last_gs_date:
+                    if st_name in global_stock_hist_cache and fdate in global_stock_hist_cache[st_name]:
+                        p = global_stock_hist_cache[st_name][fdate]['Close']
+                        r = global_stock_hist_cache[st_name][fdate]['Change'] * 100
+                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
+                    elif is_last_day and krx_dict and st_name in krx_dict:
+                        p = krx_dict[st_name]['Close']
+                        r = krx_dict[st_name]['ChagesRatio']
+                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
                         
-                if is_first_day:
+                if i == 0 and existing_df.empty:
                     diff_str = f"-{price_str}" 
+                elif i == 0 and not existing_df.empty:
+                    diff_str = ""
                 else:
                     diff = q - prev_qty.get(st_name, 0)
                     if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
@@ -237,41 +242,47 @@ for etf_name, files_info in etf_groups.items():
             if r_q_col:
                 for st_name, row_data in today_data.items():
                     prev_qty[st_name] = row_data[r_q_col]
-                    
-            all_rows.append(row_dict)
-            is_first_day = False
+            
+            if fdate > last_gs_date or existing_df.empty:
+                all_rows.append(row_dict)
             
         final_cols = ['Date']
-        for col in standard_cols + historical_new_cols:
+        for col in historical_new_cols:
             final_cols.append(col)
             final_cols.append(f"{col}_증감")
             
-        final_df = pd.DataFrame(all_rows, columns=final_cols)
+        new_df = pd.DataFrame(all_rows, columns=final_cols)
         
+        # =====================================================================
+        # 💡 [핵심 검증 4] 기존 데이터와 병합할 때 컬럼명(이름표) 기준으로 완벽하게 정렬하여 합침
+        # =====================================================================
+        if not existing_df.empty:
+            final_df = pd.concat([existing_df, new_df], axis=0, ignore_index=True)
+            final_df = final_df.reindex(columns=final_cols)
+        else:
+            final_df = new_df
+            
         out_name = f"통합완료_{etf_name}.csv"
         final_df.to_csv(os.path.join(current_folder, out_name), index=False, encoding='utf-8-sig')
-        print(f"   => 💾 PC 저장 (전체 주가 데이터 장착 완료): {out_name}")
+        print(f"   => 💾 PC 저장 (병합 완료): {out_name}")
         
         if google_connected:
             try:
-                existing_sheets = [ws.title for ws in sh.worksheets()]
-                if etf_name in existing_sheets:
-                    worksheet = sh.worksheet(etf_name)
-                else:
+                if worksheet is None:
                     worksheet = sh.add_worksheet(title=etf_name, rows="1000", cols="100")
                 
                 final_df_gs = final_df.fillna("")
                 worksheet.clear()
                 worksheet.update(values=[final_df_gs.columns.values.tolist()] + final_df_gs.values.tolist(), range_name="A1")
-                print(f"   => 🌐 구글 시트 탭 업로드 성공!")
+                print(f"   => 🌐 구글 시트 탭 스마트 업로드 성공!\n")
                 time.sleep(2) 
             except Exception as e:
-                print(f"   => ❌ 구글 시트 업로드 실패: {e}")
+                print(f"   => ❌ 구글 시트 업로드 실패: {e}\n")
         
     except Exception as e:
-        print(f"❌ 실패 [{etf_name}]: {e}")
+        print(f"❌ 실패 [{etf_name}]: {e}\n")
 
-print("\n🎉 모든 수량 및 전체 과거 주가 추적 공정이 완벽하게 완료되었습니다!")
+print("🎉 모든 스마트 어펜드 공정이 완벽하게 완료되었습니다!")
 try:
     input("엔터(Enter)를 누르면 창이 닫힙니다...")
 except EOFError:
