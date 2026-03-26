@@ -2,7 +2,7 @@ name: ETF Auto Bot Schedule
 
 on:
   schedule:
-    - cron: '50 21 * * 0-4' 
+    - cron: '20 22 * * 0-4' 
   workflow_dispatch: 
   push:
     branches: [main]
