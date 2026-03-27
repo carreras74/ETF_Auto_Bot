@@ -45,10 +45,14 @@ task_list = [
     {"brand": "KoAct", "etfs": koact_rooms}
 ]
 
+# 💡 [핵심 패치] 깃허브 리눅스 서버에서 절대 죽지 않도록 방어 옵션 추가!
 chrome_options = Options()
+chrome_options.add_argument('--headless=new') # 화면 없는 투명 모드 강제 실행
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
-chrome_options.add_argument('--window-size=1920x1080')
+chrome_options.add_argument('--disable-gpu') # 그래픽 가속 충돌 방지
+chrome_options.add_argument('--disable-software-rasterizer') # 렌더링 충돌 방지
+chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument('--log-level=3')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 chrome_options.add_argument("--disable-blink-features=AutomationControlled")
@@ -124,8 +128,6 @@ try:
                             
                         final_path = os.path.join(target_dir, final_name)
                         
-                        # 💡 [핵심 패치] 새로 받은 파일 이름이 최종 목표 이름과 다를 때만 덮어쓰기 로직 실행!
-                        # 이렇게 하면 이름이 우연히 똑같을 때 자기가 자기를 삭제하는 바보 같은 짓을 막습니다.
                         if os.path.abspath(new_file_path) != os.path.abspath(final_path):
                             if os.path.exists(final_path): os.remove(final_path)
                             shutil.move(new_file_path, final_path)
@@ -140,7 +142,6 @@ finally:
     time.sleep(2)
     driver.quit()
 
-# 절대 지워지면 안 되는 소중한 파일들의 이름을 이곳에 적어줍니다.
 safe_files = ["매입장부.xlsx"] 
 
 print("\n🧹 찌꺼기 파일 청소 중...")
