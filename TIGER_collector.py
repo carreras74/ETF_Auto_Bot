@@ -19,7 +19,7 @@ warnings.filterwarnings('ignore')
 
 print("🚀 [TIGER 자동 수집기] GitHub Actions 가동!")
 
-# 1. 구글 시트 연결 (GitHub Secrets 사용)
+# 1. 구글 시트 연결
 try:
     google_key_json = os.environ.get('GOOGLE_KEY')
     creds_dict = json.loads(google_key_json)
@@ -43,11 +43,13 @@ tiger_rooms = {
     "TIGER 퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007"
 }
 
-# 💡 [핵심] GitHub Actions 리눅스 서버용 투명 브라우저(Headless) 설정
+# 💡 [핵심 패치] 리눅스 서버 크래시(Segfault) 방지용 방탄조끼 옵션 완벽 장착!
 chrome_options = Options()
-chrome_options.add_argument('--headless')
+chrome_options.add_argument('--headless=new') # 구형 headless 대신 최신 엔진 사용
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
+chrome_options.add_argument('--disable-gpu') # 💡 충돌 방지 핵심 1
+chrome_options.add_argument('--disable-software-rasterizer') # 💡 충돌 방지 핵심 2
 chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 chrome_options.add_experimental_option("prefs", {
@@ -173,7 +175,6 @@ for etf_name, room_url in tiger_rooms.items():
         stock_name = headers[i]
         if stock_name in today_dict:
             change_str = last_row[i+1] if i+1 < len(last_row) else ""
-            # 💡 [핵심] Q태그를 찾아내어 어제 수량을 읽어옵니다!
             if " | Q" in change_str:
                 try:
                     yesterday_qty[stock_name] = int(change_str.split(" | Q")[1].replace(',', ''))
@@ -197,7 +198,6 @@ for etf_name, room_url in tiger_rooms.items():
             
         price_str = f"₩{int(current_data['주가']):,}"
         
-        # 💡 [핵심] 다음날 연산을 위해 끝에 " | Q수량" 꼬리표를 달아 구글 시트에 은밀하게 보관합니다.
         if diff > 0: diff_str = f"🔴▲{diff:,} | {price_str} | Q{int(curr_qty)}"
         elif diff < 0: diff_str = f"🔵▼{abs(diff):,} | {price_str} | Q{int(curr_qty)}"
         else: diff_str = f"0 | {price_str} | Q{int(curr_qty)}"
