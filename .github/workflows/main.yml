@@ -1,55 +1,36 @@
-name: ETF Auto Bot Schedule
+name: ETF Auto Collector
 
 on:
   schedule:
-    - cron: '20 22 * * 0-4' 
+    # 한국 시간(KST) 아침 7시 20분 동작 (UTC 기준 전날 밤 10시 20분)
+    - cron: '20 22 * * *'
+  # GitHub 페이지에서 수동으로 버튼을 눌러서 실행할 수 있게 해주는 옵션
   workflow_dispatch: 
-  push:
-    branches: [main]
-
-# 💡 [핵심 패치] 깃허브 서버의 시계를 한국 시간(KST)으로 강제 고정합니다!
-env:
-  TZ: Asia/Seoul
 
 jobs:
-  run-bot:
+  build:
     runs-on: ubuntu-latest
-    steps:
-    - name: 1. 저장소 체크아웃
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
-    - name: 2. 파이썬 환경 세팅
-      uses: actions/setup-python@v5
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
-    - name: 3. 필수 패키지 설치
+    - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y xvfb
-        pip install -r requirements.txt
+        python -m pip install --upgrade pip
+        pip install selenium webdriver-manager pandas gspread google-auth openpyxl lxml html5lib beautifulsoup4
 
-    - name: 4. 구글 시트 비밀키(JSON) 복원
+    - name: Run TIME & KoAct Collector
       env:
-        GCP_KEY_BASE64: ${{ secrets.GCP_KEY }}
-      run: |
-        echo -n "$GCP_KEY_BASE64" | base64 --decode > google_key.json
+        GOOGLE_KEY: ${{ secrets.GOOGLE_KEY }}
+      run: python ETF_collector.py
 
-    - name: 5. 데이터 수집 및 업로드 실행 (핵심!)
-      run: |
-        xvfb-run -a python ETF_collector.py
-        python 일괄변환기.py
-
-    - name: 6. 보안 정리 및 결과 저장
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        
-        rm -f google_key.json
-        
-        git add .
-        git commit -m "🤖 일일 수집 및 업로드 완료: $(date +'%Y-%m-%d')" || exit 0
-        git pull --rebase origin main
-        git push origin main
+    - name: Run TIGER Collector
+      env:
+        GOOGLE_KEY: ${{ secrets.GOOGLE_KEY }}
+      run: python TIGER_collector.py
