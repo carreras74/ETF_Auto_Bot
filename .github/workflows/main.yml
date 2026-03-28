@@ -2,9 +2,9 @@ name: ETF Auto Collector
 
 on:
   schedule:
-    # 한국 시간(KST) 아침 7시 20분 동작 (UTC 기준 전날 밤 10시 20분)
-    - cron: '20 22 * * *'
-  # GitHub 페이지에서 수동으로 버튼을 눌러서 실행할 수 있게 해주는 옵션
+    # 한국 시간(KST) 월,화,수,목,금 아침 7시 20분 동작
+    # UTC 기준: 일,월,화,수,목 밤 10시 20분 (0-4)
+    - cron: '20 22 * * 0-4'
   workflow_dispatch: 
 
 jobs:
