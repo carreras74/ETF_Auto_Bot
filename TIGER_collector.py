@@ -2,11 +2,11 @@ import os
 import time
 import glob
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By  # 💡 [핵심 패치] 버튼을 찾는 'By' 부품 장착!
+from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 import pandas as pd
 import gspread
@@ -15,10 +15,21 @@ import json
 import re
 import warnings
 
-# HTML 표 읽을 때 나오는 자잘한 경고 무시
 warnings.filterwarnings('ignore')
 
 print("🚀 [TIGER 자동 수집기] GitHub Actions 가동!")
+
+# 💡 [날짜 지능화 패치] 주말에 실행되면 직전 금요일 날짜를 사용합니다.
+now = datetime.now()
+if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
+    target_date = now - timedelta(days=1)
+elif now.weekday() == 6: # 일요일(6) -> 금요일(-2)
+    target_date = now - timedelta(days=2)
+else:
+    target_date = now
+
+formatted_date = target_date.strftime("%Y-%m-%d")
+print(f"📅 데이터 기록 기준일: {formatted_date}")
 
 # 1. 구글 시트 연결 (GitHub Secrets 사용)
 try:
@@ -36,7 +47,6 @@ except Exception as e:
 
 target_dir = os.getcwd()
 download_dir = target_dir
-formatted_date = datetime.now().strftime("%Y-%m-%d")
 
 tiger_rooms = {
     "TIGER 기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7387280001",
@@ -44,7 +54,6 @@ tiger_rooms = {
     "TIGER 퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007"
 }
 
-# 💡 리눅스 서버용 방탄 투명 브라우저(Headless) 설정
 chrome_options = Options()
 chrome_options.add_argument('--headless=new')
 chrome_options.add_argument('--no-sandbox')
@@ -101,7 +110,6 @@ for etf_name, room_url in tiger_rooms.items():
         
     print("✅ 다운로드 성공. 데이터 변환 중...")
     
-    # 해독
     try:
         dfs = pd.read_html(new_file_path, encoding='utf-8')
     except:
@@ -162,7 +170,7 @@ for etf_name, room_url in tiger_rooms.items():
     last_row = existing_data[-1]
     
     if last_row[0] == formatted_date:
-        print("⏩ 이미 오늘 데이터가 있습니다 (스킵)")
+        print(f"⏩ 이미 {formatted_date} 데이터가 있습니다 (스킵)")
         continue
         
     new_stocks = [s for s in today_dict.keys() if s not in headers]
@@ -176,7 +184,6 @@ for etf_name, room_url in tiger_rooms.items():
         stock_name = headers[i]
         if stock_name in today_dict:
             change_str = last_row[i+1] if i+1 < len(last_row) else ""
-            # 💡 [핵심] Q태그를 찾아내어 어제 수량을 읽어옵니다!
             if " | Q" in change_str:
                 try:
                     yesterday_qty[stock_name] = int(change_str.split(" | Q")[1].replace(',', ''))
@@ -200,7 +207,6 @@ for etf_name, room_url in tiger_rooms.items():
             
         price_str = f"₩{int(current_data['주가']):,}"
         
-        # 💡 [핵심] 다음날 연산을 위해 끝에 " | Q수량" 꼬리표를 달아 구글 시트에 은밀하게 보관합니다.
         if diff > 0: diff_str = f"🔴▲{diff:,} | {price_str} | Q{int(curr_qty)}"
         elif diff < 0: diff_str = f"🔵▼{abs(diff):,} | {price_str} | Q{int(curr_qty)}"
         else: diff_str = f"0 | {price_str} | Q{int(curr_qty)}"
@@ -209,7 +215,7 @@ for etf_name, room_url in tiger_rooms.items():
         new_row[idx+1] = diff_str
         
     ws.append_row(new_row)
-    print("✅ 구글 시트 업데이트 완료")
+    print(f"✅ 구글 시트 {formatted_date} 데이터 업데이트 완료")
 
 driver.quit()
 print("\n✨ 모든 작업 완료!")
