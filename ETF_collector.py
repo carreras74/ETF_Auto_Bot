@@ -2,22 +2,33 @@ import os
 import time
 import glob
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
+# 1. 작업 위치 및 날짜 지능 세팅
 target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
 
-date_time = datetime.now().strftime("%Y-%m-%d") 
-date_koact = datetime.now().strftime("%Y%m%d")  
+# 💡 [날짜 지능화] 주말에 실행되면 직전 금요일 날짜를 기준으로 파일명을 만듭니다.
+now = datetime.now()
+if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
+    target_date = now - timedelta(days=1)
+elif now.weekday() == 6: # 일요일(6) -> 금요일(-2)
+    target_date = now - timedelta(days=2)
+else:
+    target_date = now
+
+date_time = target_date.strftime("%Y-%m-%d") # TIME용 (2026-03-27)
+date_koact = target_date.strftime("%Y%m%d")   # KoAct용 (20260327)
 
 print(f"📍 작업 위치: {target_dir}")
-print(f"📅 TIME 날짜: {date_time} / KoAct 날짜: {date_koact}\n")
+print(f"📅 [날짜보정] TIME 기준: {date_time} / KoAct 기준: {date_koact}\n")
 
+# 2. 운용사별 룸(URL) 리스트
 time_rooms = {
     "코스닥액티브": "https://timeetf.co.kr/m11_view.php?idx=24&cate=002",
     "플러스배당액티브": "https://timeetf.co.kr/m11_view.php?idx=12&cate=002",
@@ -45,13 +56,13 @@ task_list = [
     {"brand": "KoAct", "etfs": koact_rooms}
 ]
 
-# 💡 [핵심 패치] 깃허브 리눅스 서버에서 절대 죽지 않도록 방어 옵션 추가!
+# 3. 깃허브 리눅스 서버용 방탄 크롬 옵션
 chrome_options = Options()
-chrome_options.add_argument('--headless=new') # 화면 없는 투명 모드 강제 실행
+chrome_options.add_argument('--headless=new') 
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
-chrome_options.add_argument('--disable-gpu') # 그래픽 가속 충돌 방지
-chrome_options.add_argument('--disable-software-rasterizer') # 렌더링 충돌 방지
+chrome_options.add_argument('--disable-gpu')
+chrome_options.add_argument('--disable-software-rasterizer')
 chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument('--log-level=3')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
@@ -72,7 +83,7 @@ driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
 })
 
 try:
-    print("🚀 [수집기 가동] 시각화 모드 (16개 완전체) 시작!")
+    print("🚀 [수집기 가동] 1군(TIME, KoAct) 릴레이 시작!")
 
     for task in task_list:
         brand = task["brand"]
@@ -142,6 +153,7 @@ finally:
     time.sleep(2)
     driver.quit()
 
+# 4. 청소 작업
 safe_files = ["매입장부.xlsx"] 
 
 print("\n🧹 찌꺼기 파일 청소 중...")
