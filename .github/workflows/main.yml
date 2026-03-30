@@ -2,8 +2,9 @@ name: ETF Auto Collector
 
 on:
   schedule:
-    # 한국 시간(KST) 월,화,수,목,금 아침 7시 20분 동작
-    - cron: '20 22 * * 0-4'
+    # 💡 [트래픽 회피 패치] 사람들이 몰리는 20분을 피해, 17분(홀수 분)으로 하이패스 설정!
+    # 한국 시간(KST) 월~금 아침 7시 17분 동작 (UTC 기준: 일~목 밤 10시 17분)
+    - cron: '17 22 * * 0-4'
   workflow_dispatch: 
 
 jobs:
@@ -24,7 +25,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install selenium webdriver-manager pandas gspread google-auth openpyxl lxml html5lib beautifulsoup4 finance-datareader xlrd
 
-    # 💡 [핵심 패치] 따옴표가 날아가지 않도록 파이썬을 이용해 무결점 열쇠를 생성합니다!
     - name: Create google_key.json
       env:
         GOOGLE_SECRET: ${{ secrets.GOOGLE_KEY }}
