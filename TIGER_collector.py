@@ -7,8 +7,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait # 💡 [스마트 대기 부품]
-from selenium.webdriver.support import expected_conditions as EC # 💡 [스마트 대기 부품]
+from selenium.webdriver.support.ui import WebDriverWait 
+from selenium.webdriver.support import expected_conditions as EC 
 from webdriver_manager.chrome import ChromeDriverManager
 import pandas as pd
 import gspread
@@ -19,7 +19,7 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-print("🚀 [TIGER 자동 수집기] 스마트 레이더 모드 가동!")
+print("🚀 [TIGER 자동 수집기] 투명 망토 + 스마트 레이더 모드 가동!")
 
 now = datetime.now()
 if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
@@ -55,6 +55,7 @@ tiger_rooms = {
     "TIGER 퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007"
 }
 
+# 💡 [핵심 패치] 미래에셋 로봇 탐지기를 속이는 '투명 망토' 장착!
 chrome_options = Options()
 chrome_options.add_argument('--headless=new')
 chrome_options.add_argument('--no-sandbox')
@@ -63,6 +64,10 @@ chrome_options.add_argument('--disable-gpu')
 chrome_options.add_argument('--disable-software-rasterizer') 
 chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+# 로봇 냄새 지우기 1
+chrome_options.add_argument("--disable-blink-features=AutomationControlled") 
+# 로봇 냄새 지우기 2
+chrome_options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging']) 
 chrome_options.add_experimental_option("prefs", {
     "download.default_directory": download_dir,
     "download.prompt_for_download": False,
@@ -70,17 +75,19 @@ chrome_options.add_experimental_option("prefs", {
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
-# 💡 [핵심 패치] 최대 20초까지 버튼을 기다리는 레이더 생성
+# 로봇 냄새 지우기 3 (자바스크립트 우회)
+driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+    "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
+})
+
 wait = WebDriverWait(driver, 20)
 
 for etf_name, room_url in tiger_rooms.items():
     print(f"\n▶️ [{etf_name}] 수집 시작...")
     driver.get(room_url)
     
-    # 기본 로딩 대기
     time.sleep(3)
     
-    # 기습 팝업창 제거
     try:
         driver.execute_script("""
             var popups = document.querySelectorAll('[class*="popup"], [class*="layer"], [class*="modal"], [id*="popup"]');
@@ -88,7 +95,6 @@ for etf_name, room_url in tiger_rooms.items():
         """)
     except: pass
     
-    # 💡 [핵심 패치] 지연 로딩을 확실히 깨우기 위해 5단계로 촘촘하게 스크롤!
     for step in range(1, 6):
         driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/5));")
         time.sleep(1.5)
@@ -101,11 +107,10 @@ for etf_name, room_url in tiger_rooms.items():
         "//a[@title='엑셀 다운로드']"
     )
     
-    # 💡 [핵심 패치] 버튼이 화면에 나타날 때까지 끈질기게 추적! (최대 20초)
     try:
         excel_buttons = wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_excel)))
     except:
-        print("❌ 20초를 기다렸지만 엑셀 버튼을 찾지 못했습니다.")
+        print("❌ 20초를 기다렸지만 엑셀 버튼을 찾지 못했습니다. (페이지가 로봇을 차단했거나 구조가 다름)")
         continue
         
     if not excel_buttons:
