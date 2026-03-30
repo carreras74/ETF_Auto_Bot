@@ -24,10 +24,7 @@ UNWANTED_NAME_PATTERN = re.compile(r"원화예금|현금|설정|해지", re.IGNO
 def get_gspread_client(base_dir: str | Path | None = None) -> gspread.Client:
     raw = os.getenv("GOOGLE_KEY", "").strip()
     if raw:
-        credentials = Credentials.from_service_account_info(
-            json.loads(raw),
-            scopes=GOOGLE_SCOPES,
-        )
+        credentials = Credentials.from_service_account_info(json.loads(raw), scopes=GOOGLE_SCOPES)
         return gspread.authorize(credentials)
 
     candidate_dirs = []
@@ -76,34 +73,81 @@ def read_download_table(file_path: str | Path) -> pd.DataFrame:
         raise ValueError(f"파일 파싱 실패: {file_path.name} / {exc}") from exc
 
 
+def _clean_token(value) -> str:
+    text = str(value)
+    text = text.replace("\n", "")
+    text = text.replace("\r", "")
+    text = text.replace("\t", "")
+    text = text.replace(" ", "")
+    return text.strip()
+
+
 def locate_header_row(df: pd.DataFrame) -> int:
-    for idx, row in df.iterrows():
-        tokens = [str(value).replace(" ", "") for value in row.values]
-        has_name = any(
-            any(key in token for key in ["종목명", "종목", "자산명", "자산"])
-            for token in tokens
-        )
-        has_weight = any("비중" in token for token in tokens)
-        if has_name and has_weight:
-            return idx
+    """
+    ETF 파일마다 헤더 표기가 조금씩 달라서
+    '종목명 + 비중' 완전일치가 아니라 점수 기반으로 헤더 행을 찾습니다.
+    """
+    name_keywords = ["종목명", "구성종목", "자산명", "자산", "종목", "종목코드", "자산코드"]
+    weight_keywords = ["비중", "비중(%)", "구성비", "편입비", "평가비중", "투자비중"]
+    qty_keywords = ["수량", "주식수", "계약수", "보유수량"]
+    value_keywords = ["평가금액", "시가평가액", "금액", "평가액"]
+
+    best_idx = None
+    best_score = -1
+
+    max_rows = min(len(df), 30)
+
+    for idx in range(max_rows):
+        row = df.iloc[idx]
+        tokens = [_clean_token(v) for v in row.values if str(v).strip() and str(v).strip().lower() != "nan"]
+
+        if not tokens:
+            continue
+
+        score = 0
+
+        if any(any(k in token for k in name_keywords) for token in tokens):
+            score += 3
+        if any(any(k in token for k in weight_keywords) for token in tokens):
+            score += 3
+        if any(any(k in token for k in qty_keywords) for token in tokens):
+            score += 1
+        if any(any(k in token for k in value_keywords) for token in tokens):
+            score += 1
+
+        # 너무 짧은 행은 헤더일 가능성이 낮음
+        if len(tokens) >= 3:
+            score += 1
+
+        if score > best_score:
+            best_score = score
+            best_idx = idx
+
+    if best_idx is not None and best_score >= 6:
+        return best_idx
+
     raise ValueError("헤더 행을 찾을 수 없습니다.")
 
 
-def normalize_holdings_dataframe(
-    raw_df: pd.DataFrame,
-) -> Tuple[pd.DataFrame, str, str, Optional[str], Optional[str]]:
+def normalize_holdings_dataframe(raw_df: pd.DataFrame) -> Tuple[pd.DataFrame, str, str, Optional[str], Optional[str]]:
     header_idx = locate_header_row(raw_df)
     df = raw_df.copy()
     df.columns = df.iloc[header_idx]
     df = df.iloc[header_idx + 1 :].reset_index(drop=True)
-    df.columns = [str(col).strip() for col in df.columns]
+    df.columns = [_clean_token(col) for col in df.columns]
 
     name_col = next(
-        (c for c in df.columns if any(k in c for k in ["종목명", "자산명", "종목", "자산"])),
+        (c for c in df.columns if any(k in c for k in ["종목명", "구성종목", "자산명", "자산", "종목"])),
         None,
     )
-    weight_col = next((c for c in df.columns if "비중" in c), None)
-    qty_col = next((c for c in df.columns if any(k in c for k in ["수량", "주식수", "계약수"])), None)
+    weight_col = next(
+        (c for c in df.columns if any(k in c for k in ["비중", "비중(%)", "구성비", "편입비", "평가비중", "투자비중"])),
+        None,
+    )
+    qty_col = next(
+        (c for c in df.columns if any(k in c for k in ["수량", "주식수", "계약수", "보유수량"])),
+        None,
+    )
     value_col = next(
         (c for c in df.columns if any(k in c for k in ["평가금액", "시가평가액", "금액", "평가액"])),
         None,
@@ -118,7 +162,7 @@ def normalize_holdings_dataframe(
     df = df[~df[name_col].str.contains(UNWANTED_NAME_PATTERN, na=False)]
 
     df[weight_col] = pd.to_numeric(
-        df[weight_col].astype(str).str.replace(",", "", regex=False),
+        df[weight_col].astype(str).str.replace(",", "", regex=False).str.replace("%", "", regex=False),
         errors="coerce",
     ).fillna(0)
 
@@ -158,11 +202,9 @@ def load_existing_sheet_frame(spreadsheet, worksheet_name: str) -> tuple[Optiona
 def parse_qty_from_change_cell(cell_value: str) -> Optional[int]:
     if not cell_value:
         return None
-
     match = re.search(r"\|\s*Q([\d,]+)", str(cell_value))
     if not match:
         return None
-
     return int(match.group(1).replace(",", ""))
 
 
@@ -172,12 +214,10 @@ def extract_previous_qty_map(existing_df: pd.DataFrame) -> Dict[str, Optional[in
 
     last_row = existing_df.iloc[-1].to_dict()
     qty_map: Dict[str, Optional[int]] = {}
-
     for column in existing_df.columns:
         if column == "Date" or column.endswith("_증감"):
             continue
         qty_map[column] = parse_qty_from_change_cell(last_row.get(f"{column}_증감", ""))
-
     return qty_map
 
 
@@ -188,12 +228,10 @@ def extract_previous_qty_map_korean(existing_values: list[list[str]]) -> Dict[st
     headers = existing_values[0]
     last_row = existing_values[-1]
     qty_map: Dict[str, Optional[int]] = {}
-
     for idx in range(1, len(headers), 2):
         stock = headers[idx]
         cell = last_row[idx + 1] if idx + 1 < len(last_row) else ""
         qty_map[stock] = parse_qty_from_change_cell(cell)
-
     return qty_map
 
 
