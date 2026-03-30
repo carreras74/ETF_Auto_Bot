@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import time
+from datetime import datetime  # 💡 [핵심 패치] 달력 계산기 부품 장착!
 
 def install_package(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -27,13 +28,12 @@ try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [스마트 어펜드 + 첫줄 절대 매칭 모터] 시즌4 변환기 실행 중...\n")
+print("🚀 [스마트 어펜드 + 첫줄 절대 매칭 모터] 주말 차단 모드 실행 중...\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
 try:
     gc = gspread.service_account(filename=os.path.join(current_folder, 'google_key.json'))
-    # 💡 [주의] 구글 시트 주소를 반드시 다시 적어주세요!
     SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit?gid=1831966955#gid=1831966955' 
     sh = gc.open_by_url(SHEET_URL)
     google_connected = True
@@ -70,8 +70,6 @@ all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
 
 if not all_files:
     print("❌ 폴더에 원본 파일이 없습니다.")
-    try: input("엔터를 누르면 종료됩니다...")
-    except: pass
     exit()
 
 etf_groups = {}
@@ -83,6 +81,17 @@ for f in all_files:
     
     if len(raw_date) == 8: file_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
     else: file_date = raw_date
+        
+    # =====================================================================
+    # 💡 [핵심 패치] 주말(토, 일) 파일은 무조건 쓰레기통으로 던집니다!
+    # =====================================================================
+    try:
+        dt_obj = datetime.strptime(file_date, "%Y-%m-%d")
+        if dt_obj.weekday() >= 5:  # 5는 토요일, 6은 일요일
+            print(f"🚫 주말 데이터 차단됨 (건너뜀): {fname}")
+            continue
+    except:
+        pass
         
     etf_name = re.sub(r'구성종목|PDF|기준\s*가격|\d{4}-\d{2}-\d{2}|\d{8}|\.xlsx|\.csv|\.xls|[()_\-\s]', '', fname).strip()
     
@@ -138,12 +147,8 @@ for etf_name, files_info in etf_groups.items():
                     data = worksheet.get_all_values()
                     if len(data) > 1:
                         existing_df = pd.DataFrame(data[1:], columns=data[0])
-            except Exception as e:
-                pass
+            except: pass
         
-        # =====================================================================
-        # 💡 [핵심 검증 1] 첫 줄(헤더)에 있는 기존 종목들의 이름표와 순서를 완벽히 기억합니다.
-        # =====================================================================
         if not existing_df.empty and 'Date' in existing_df.columns:
             last_gs_date = existing_df['Date'].max()
             historical_cols = [c for c in existing_df.columns if c != 'Date' and not c.endswith('_증감')]
@@ -151,13 +156,13 @@ for etf_name, files_info in etf_groups.items():
             last_gs_date = "1900-01-01"
             historical_cols = []
             
-        target_files = [f for f in files_info if f['date'] >= last_gs_date]
+        target_files = [f for f in files_info if f['date'] > last_gs_date]
         
-        if len(target_files) <= 1 and target_files and target_files[0]['date'] <= last_gs_date:
+        if not target_files:
             print(f"   ✅ 이미 최신 상태입니다. (마지막 업데이트: {last_gs_date}) 스킵!\n")
             continue
 
-        print(f"   => 🔄 새로운 날짜 {len(target_files)-1}일치 데이터를 추가합니다.")
+        print(f"   => 🔄 새로운 날짜 {len(target_files)}일치 데이터를 추가합니다.")
         
         new_dates = [f['date'] for f in target_files if f['date'] > last_gs_date]
         all_stocks_in_new_files = set()
@@ -180,7 +185,6 @@ for etf_name, files_info in etf_groups.items():
                     global_stock_hist_cache[st_name] = {}
 
         all_rows = []
-        # historical_new_cols 변수에 기존 종목 순서를 먼저 박아놓습니다. (열 섞임 원천 차단)
         historical_new_cols = list(historical_cols) 
         prev_qty = {} 
         
@@ -195,9 +199,6 @@ for etf_name, files_info in etf_groups.items():
             
             today_top20 = r_df.sort_values(by=r_w_col, ascending=False).head(20)
             
-            # =====================================================================
-            # 💡 [핵심 검증 2] 새로운 종목은 무조건 기존 종목을 건드리지 않고 '맨 뒤'에 추가
-            # =====================================================================
             for st_name in today_top20[r_n_col]:
                 if st_name not in historical_new_cols:
                     historical_new_cols.append(st_name)
@@ -205,9 +206,6 @@ for etf_name, files_info in etf_groups.items():
             row_dict = {'Date': fdate}
             today_data = r_df.set_index(r_n_col).to_dict('index')
             
-            # =====================================================================
-            # 💡 [핵심 검증 3] 데이터를 집어넣을 때 '종목명(이름표)'을 보고 그 자리에 꽂아 넣음
-            # =====================================================================
             for st_name in historical_new_cols:
                 if st_name in today_data:
                     w = today_data[st_name][r_w_col]
@@ -253,9 +251,6 @@ for etf_name, files_info in etf_groups.items():
             
         new_df = pd.DataFrame(all_rows, columns=final_cols)
         
-        # =====================================================================
-        # 💡 [핵심 검증 4] 기존 데이터와 병합할 때 컬럼명(이름표) 기준으로 완벽하게 정렬하여 합침
-        # =====================================================================
         if not existing_df.empty:
             final_df = pd.concat([existing_df, new_df], axis=0, ignore_index=True)
             final_df = final_df.reindex(columns=final_cols)
@@ -283,7 +278,3 @@ for etf_name, files_info in etf_groups.items():
         print(f"❌ 실패 [{etf_name}]: {e}\n")
 
 print("🎉 모든 스마트 어펜드 공정이 완벽하게 완료되었습니다!")
-try:
-    input("엔터(Enter)를 누르면 창이 닫힙니다...")
-except EOFError:
-    pass
