@@ -164,116 +164,139 @@ def main() -> int:
         LOGGER.info("[%s] 분석 시작", etf_name)
         files_info.sort(key=lambda item: item["date"])
 
-        worksheet = None
-        existing_df = pd.DataFrame()
-        if spreadsheet is not None:
-            worksheet, existing_df = load_existing_sheet_frame(spreadsheet, etf_name)
+        try:
+            worksheet = None
+            existing_df = pd.DataFrame()
 
-        last_sheet_date = (
-            existing_df["Date"].max()
-            if (not existing_df.empty and "Date" in existing_df.columns)
-            else "1900-01-01"
-        )
+            if spreadsheet is not None:
+                worksheet, existing_df = load_existing_sheet_frame(spreadsheet, etf_name)
 
-        target_files = [item for item in files_info if item["date"] > last_sheet_date]
-        if not target_files:
-            LOGGER.info("[%s] 이미 최신 상태 (마지막 날짜=%s)", etf_name, last_sheet_date)
-            continue
-
-        stock_names = set()
-        for item in target_files:
-            try:
-                raw_df = read_download_table(item["file"])
-                df, name_col, weight_col, _, _ = normalize_holdings_dataframe(raw_df)
-                top20 = df.sort_values(by=weight_col, ascending=False).head(20)
-                stock_names.update(top20[name_col].astype(str).tolist())
-            except Exception as exc:
-                LOGGER.warning("[%s] 사전 스캔 실패: %s / %s", etf_name, item["file"].name, exc)
-
-        history_cache = build_history_cache(stock_names, target_files[0]["date"], name_to_code)
-        previous_qty_map = extract_previous_qty_map(existing_df)
-        ordered_stocks = (
-            [col for col in existing_df.columns if col != "Date" and not col.endswith("_증감")]
-            if not existing_df.empty
-            else []
-        )
-
-        rows_to_append = []
-
-        for idx, item in enumerate(target_files):
-            file_path = item["file"]
-            file_date = item["date"]
-            is_last_day = idx == len(target_files) - 1
-
-            raw_df = read_download_table(file_path)
-            df, name_col, weight_col, qty_col, _ = normalize_holdings_dataframe(raw_df)
-
-            if not qty_col:
-                raise ValueError(f"수량 컬럼이 없어 처리할 수 없습니다: {file_path.name}")
-
-            df = df.sort_values(by=weight_col, ascending=False).head(20).reset_index(drop=True)
-
-            today_map = {
-                row[name_col]: {
-                    "weight": float(row[weight_col]),
-                    "qty": int(row[qty_col]),
-                }
-                for _, row in df.iterrows()
-            }
-
-            for stock in today_map:
-                if stock not in ordered_stocks:
-                    ordered_stocks.append(stock)
-
-            row_dict = {"Date": file_date}
-            next_previous_qty = previous_qty_map.copy()
-
-            for stock in ordered_stocks:
-                current = today_map.get(stock)
-                if current:
-                    weight = current["weight"]
-                    qty = current["qty"]
-                else:
-                    weight = 0
-                    qty = 0
-
-                prev_qty = previous_qty_map.get(stock)
-                diff = 0 if prev_qty is None else qty - prev_qty
-                price_suffix = build_price_suffix(
-                    stock,
-                    file_date,
-                    is_last_day,
-                    history_cache,
-                    latest_price_map,
-                )
-
-                row_dict[stock] = weight
-                row_dict[f"{stock}_증감"] = format_change(diff, price_suffix, qty)
-                next_previous_qty[stock] = qty
-
-            previous_qty_map = next_previous_qty
-            rows_to_append.append(row_dict)
-
-        final_columns = ["Date"]
-        for stock in ordered_stocks:
-            final_columns.extend([stock, f"{stock}_증감"])
-
-        new_df = pd.DataFrame(rows_to_append, columns=final_columns)
-        final_df = pd.concat([existing_df, new_df], ignore_index=True) if not existing_df.empty else new_df
-        final_df = final_df.reindex(columns=final_columns)
-
-        out_path = base_dir / f"통합완료_{etf_name}.csv"
-        final_df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        LOGGER.info("[%s] 로컬 저장 완료 -> %s", etf_name, out_path.name)
-
-        if spreadsheet is not None:
-            worksheet = worksheet or ensure_worksheet(spreadsheet, etf_name, rows=2000, cols=300)
-            worksheet.clear()
-            worksheet.update(
-                range_name="A1",
-                values=[final_df.fillna("").columns.tolist()] + final_df.fillna("").values.tolist(),
+            last_sheet_date = (
+                existing_df["Date"].max()
+                if (not existing_df.empty and "Date" in existing_df.columns)
+                else "1900-01-01"
             )
-            LOGGER.info("[%s] 구글 시트 업로드 완료", etf_name)
+
+            target_files = [item for item in files_info if item["date"] > last_sheet_date]
+            if not target_files:
+                LOGGER.info("[%s] 이미 최신 상태 (마지막 날짜=%s)", etf_name, last_sheet_date)
+                continue
+
+            stock_names = set()
+            valid_target_files = []
+
+            for item in target_files:
+                try:
+                    raw_df = read_download_table(item["file"])
+                    df, name_col, weight_col, _, _ = normalize_holdings_dataframe(raw_df)
+                    top20 = df.sort_values(by=weight_col, ascending=False).head(20)
+                    stock_names.update(top20[name_col].astype(str).tolist())
+                    valid_target_files.append(item)
+                except Exception as exc:
+                    LOGGER.warning("[%s] 사전 스캔 실패: %s / %s", etf_name, item["file"].name, exc)
+
+            if not valid_target_files:
+                LOGGER.warning("[%s] 처리 가능한 신규 파일이 없어 스킵", etf_name)
+                continue
+
+            history_cache = build_history_cache(stock_names, valid_target_files[0]["date"], name_to_code)
+            previous_qty_map = extract_previous_qty_map(existing_df)
+            ordered_stocks = (
+                [col for col in existing_df.columns if col != "Date" and not col.endswith("_증감")]
+                if not existing_df.empty
+                else []
+            )
+
+            rows_to_append = []
+
+            for idx, item in enumerate(valid_target_files):
+                file_path = item["file"]
+                file_date = item["date"]
+                is_last_day = idx == len(valid_target_files) - 1
+
+                try:
+                    raw_df = read_download_table(file_path)
+                    df, name_col, weight_col, qty_col, _ = normalize_holdings_dataframe(raw_df)
+
+                    if not qty_col:
+                        LOGGER.warning("[%s] 수량 컬럼이 없어 파일 스킵: %s", etf_name, file_path.name)
+                        continue
+
+                except Exception as exc:
+                    LOGGER.warning("[%s] 본처리 실패로 파일 스킵: %s / %s", etf_name, file_path.name, exc)
+                    continue
+
+                df = df.sort_values(by=weight_col, ascending=False).head(20).reset_index(drop=True)
+
+                today_map = {
+                    row[name_col]: {
+                        "weight": float(row[weight_col]),
+                        "qty": int(row[qty_col]),
+                    }
+                    for _, row in df.iterrows()
+                }
+
+                for stock in today_map:
+                    if stock not in ordered_stocks:
+                        ordered_stocks.append(stock)
+
+                row_dict = {"Date": file_date}
+                next_previous_qty = previous_qty_map.copy()
+
+                for stock in ordered_stocks:
+                    current = today_map.get(stock)
+                    if current:
+                        weight = current["weight"]
+                        qty = current["qty"]
+                    else:
+                        weight = 0
+                        qty = 0
+
+                    prev_qty = previous_qty_map.get(stock)
+                    diff = 0 if prev_qty is None else qty - prev_qty
+                    price_suffix = build_price_suffix(
+                        stock,
+                        file_date,
+                        is_last_day,
+                        history_cache,
+                        latest_price_map,
+                    )
+
+                    row_dict[stock] = weight
+                    row_dict[f"{stock}_증감"] = format_change(diff, price_suffix, qty)
+                    next_previous_qty[stock] = qty
+
+                previous_qty_map = next_previous_qty
+                rows_to_append.append(row_dict)
+
+            if not rows_to_append:
+                LOGGER.warning("[%s] 최종 반영할 행이 없어 스킵", etf_name)
+                continue
+
+            final_columns = ["Date"]
+            for stock in ordered_stocks:
+                final_columns.extend([stock, f"{stock}_증감"])
+
+            new_df = pd.DataFrame(rows_to_append, columns=final_columns)
+            final_df = pd.concat([existing_df, new_df], ignore_index=True) if not existing_df.empty else new_df
+            final_df = final_df.reindex(columns=final_columns)
+
+            out_path = base_dir / f"통합완료_{etf_name}.csv"
+            final_df.to_csv(out_path, index=False, encoding="utf-8-sig")
+            LOGGER.info("[%s] 로컬 저장 완료 -> %s", etf_name, out_path.name)
+
+            if spreadsheet is not None:
+                worksheet = worksheet or ensure_worksheet(spreadsheet, etf_name, rows=2000, cols=300)
+                worksheet.clear()
+                worksheet.update(
+                    range_name="A1",
+                    values=[final_df.fillna("").columns.tolist()] + final_df.fillna("").values.tolist(),
+                )
+                LOGGER.info("[%s] 구글 시트 업로드 완료", etf_name)
+
+        except Exception as exc:
+            LOGGER.exception("[%s] ETF 단위 처리 실패: %s", etf_name, exc)
+            continue
 
     LOGGER.info("일괄변환기 종료")
     return 0
