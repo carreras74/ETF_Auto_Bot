@@ -24,13 +24,15 @@ jobs:
         python -m pip install --upgrade pip
         pip install selenium webdriver-manager pandas gspread google-auth openpyxl lxml html5lib beautifulsoup4 finance-datareader xlrd
 
+    # 💡 [핵심 패치] 따옴표가 날아가지 않도록 파이썬을 이용해 무결점 열쇠를 생성합니다!
     - name: Create google_key.json
-      run: echo "${{ secrets.GOOGLE_KEY }}" > google_key.json
+      env:
+        GOOGLE_SECRET: ${{ secrets.GOOGLE_KEY }}
+      run: python -c 'import os; open("google_key.json", "w", encoding="utf-8").write(os.environ.get("GOOGLE_SECRET", ""))'
 
     - name: Run TIME & KoAct Collector
       run: python ETF_collector.py
 
-    # 💡 [핵심 패치] 드디어 제 이름을 찾은 1군 변환기!
     - name: Run TIME & KoAct Converter 
       run: python 일괄변환기.py
 
