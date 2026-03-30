@@ -19,7 +19,6 @@ warnings.filterwarnings('ignore')
 
 print("🚀 [TIGER 자동 수집기] GitHub Actions 가동!")
 
-# 💡 [날짜 지능화 패치] 주말에 실행되면 직전 금요일 날짜를 사용합니다.
 now = datetime.now()
 if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
     target_date = now - timedelta(days=1)
@@ -31,7 +30,7 @@ else:
 formatted_date = target_date.strftime("%Y-%m-%d")
 print(f"📅 데이터 기록 기준일: {formatted_date}")
 
-# 1. 구글 시트 연결 (GitHub Secrets 사용)
+# 1. 구글 시트 연결
 try:
     google_key_json = os.environ.get('GOOGLE_KEY')
     creds_dict = json.loads(google_key_json)
@@ -72,14 +71,30 @@ driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), opti
 for etf_name, room_url in tiger_rooms.items():
     print(f"\n▶️ [{etf_name}] 수집 시작...")
     driver.get(room_url)
-    time.sleep(5)
-    driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
-    time.sleep(2)
     
+    # 💡 [불도저 패치 1] 충분한 로딩 대기 시간 부여 (5초 -> 8초)
+    time.sleep(8)
+    
+    # 💡 [불도저 패치 2] 월요일 기습 팝업창 모조리 파괴!
+    try:
+        driver.execute_script("""
+            var popups = document.querySelectorAll('[class*="popup"], [class*="layer"], [class*="modal"], [id*="popup"]');
+            popups.forEach(function(el) { el.remove(); });
+        """)
+    except: pass
+    
+    # 💡 [불도저 패치 3] 지연 로딩을 깨우기 위해 3번에 걸쳐 천천히 스크롤!
+    for step in range(1, 4):
+        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/4));")
+        time.sleep(2)
+    
+    # 💡 [불도저 패치 4] 엑셀 버튼 감지 레이더망 대폭 확대
     xpath_excel = (
-        "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
-        "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')] | "
-        "//span[contains(text(), '엑셀')]/parent::a"
+        "//a[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀') or contains(translate(text(), 'EXCEL', 'excel'), 'excel')] | "
+        "//button[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀')] | "
+        "//span[contains(text(), '엑셀')]/parent::a | "
+        "//img[contains(@alt, '엑셀')]/parent::a | "
+        "//a[@title='엑셀 다운로드']"
     )
     
     excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
@@ -89,7 +104,7 @@ for etf_name, room_url in tiger_rooms.items():
         
     target_button = excel_buttons[-1]
     driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
-    time.sleep(1)
+    time.sleep(1.5)
     
     before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
     driver.execute_script("arguments[0].click();", target_button)
