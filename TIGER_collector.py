@@ -2,7 +2,7 @@ import os
 import time
 import glob
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone # 💡 [한국 시간 패치] timezone 부품 추가
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -21,7 +21,10 @@ warnings.filterwarnings('ignore')
 
 print("🚀 [TIGER 자동 수집기] 투명 망토 + 스마트 레이더 모드 가동!")
 
-now = datetime.now()
+# 💡 [핵심 패치] 깃허브 서버(영국) 시간을 무시하고 강제로 한국 시간(KST) 기준 적용!
+KST = timezone(timedelta(hours=9))
+now = datetime.now(KST)
+
 if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
     target_date = now - timedelta(days=1)
 elif now.weekday() == 6: # 일요일(6) -> 금요일(-2)
@@ -55,7 +58,6 @@ tiger_rooms = {
     "TIGER 퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007"
 }
 
-# 💡 [핵심 패치] 미래에셋 로봇 탐지기를 속이는 '투명 망토' 장착!
 chrome_options = Options()
 chrome_options.add_argument('--headless=new')
 chrome_options.add_argument('--no-sandbox')
@@ -64,9 +66,7 @@ chrome_options.add_argument('--disable-gpu')
 chrome_options.add_argument('--disable-software-rasterizer') 
 chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-# 로봇 냄새 지우기 1
 chrome_options.add_argument("--disable-blink-features=AutomationControlled") 
-# 로봇 냄새 지우기 2
 chrome_options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging']) 
 chrome_options.add_experimental_option("prefs", {
     "download.default_directory": download_dir,
@@ -75,7 +75,6 @@ chrome_options.add_experimental_option("prefs", {
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
-# 로봇 냄새 지우기 3 (자바스크립트 우회)
 driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
 })
