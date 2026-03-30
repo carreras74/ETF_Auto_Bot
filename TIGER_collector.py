@@ -7,6 +7,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait # 💡 [스마트 대기 부품]
+from selenium.webdriver.support import expected_conditions as EC # 💡 [스마트 대기 부품]
 from webdriver_manager.chrome import ChromeDriverManager
 import pandas as pd
 import gspread
@@ -17,7 +19,7 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-print("🚀 [TIGER 자동 수집기] GitHub Actions 가동!")
+print("🚀 [TIGER 자동 수집기] 스마트 레이더 모드 가동!")
 
 now = datetime.now()
 if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
@@ -68,14 +70,17 @@ chrome_options.add_experimental_option("prefs", {
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
+# 💡 [핵심 패치] 최대 20초까지 버튼을 기다리는 레이더 생성
+wait = WebDriverWait(driver, 20)
+
 for etf_name, room_url in tiger_rooms.items():
     print(f"\n▶️ [{etf_name}] 수집 시작...")
     driver.get(room_url)
     
-    # 💡 [불도저 패치 1] 충분한 로딩 대기 시간 부여 (5초 -> 8초)
-    time.sleep(8)
+    # 기본 로딩 대기
+    time.sleep(3)
     
-    # 💡 [불도저 패치 2] 월요일 기습 팝업창 모조리 파괴!
+    # 기습 팝업창 제거
     try:
         driver.execute_script("""
             var popups = document.querySelectorAll('[class*="popup"], [class*="layer"], [class*="modal"], [id*="popup"]');
@@ -83,12 +88,11 @@ for etf_name, room_url in tiger_rooms.items():
         """)
     except: pass
     
-    # 💡 [불도저 패치 3] 지연 로딩을 깨우기 위해 3번에 걸쳐 천천히 스크롤!
-    for step in range(1, 4):
-        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/4));")
-        time.sleep(2)
+    # 💡 [핵심 패치] 지연 로딩을 확실히 깨우기 위해 5단계로 촘촘하게 스크롤!
+    for step in range(1, 6):
+        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/5));")
+        time.sleep(1.5)
     
-    # 💡 [불도저 패치 4] 엑셀 버튼 감지 레이더망 대폭 확대
     xpath_excel = (
         "//a[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀') or contains(translate(text(), 'EXCEL', 'excel'), 'excel')] | "
         "//button[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀')] | "
@@ -97,7 +101,13 @@ for etf_name, room_url in tiger_rooms.items():
         "//a[@title='엑셀 다운로드']"
     )
     
-    excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
+    # 💡 [핵심 패치] 버튼이 화면에 나타날 때까지 끈질기게 추적! (최대 20초)
+    try:
+        excel_buttons = wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_excel)))
+    except:
+        print("❌ 20초를 기다렸지만 엑셀 버튼을 찾지 못했습니다.")
+        continue
+        
     if not excel_buttons:
         print("❌ 엑셀 버튼 없음")
         continue
