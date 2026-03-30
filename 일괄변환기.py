@@ -1,280 +1,284 @@
-import os
-import sys
-import subprocess
-import time
-from datetime import datetime  # 💡 [핵심 패치] 달력 계산기 부품 장착!
+from __future__ import annotations
 
-def install_package(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-try: import xlrd
-except ImportError: install_package("xlrd")
-
-try: import gspread
-except ImportError:
-    install_package("gspread")
-    import gspread
-
-try: import FinanceDataReader as fdr
-except ImportError:
-    install_package("finance-datareader")
-    import FinanceDataReader as fdr
-
-import pandas as pd
-import glob
+import logging
 import re
+from pathlib import Path
+from typing import Dict, List
 
-try: current_folder = os.path.dirname(os.path.abspath(__file__))
-except: current_folder = os.getcwd()
+import FinanceDataReader as fdr
+import pandas as pd
 
-print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [스마트 어펜드 + 첫줄 절대 매칭 모터] 주말 차단 모드 실행 중...\n")
+from common_selenium import configure_logging
+from etf_data_utils import (
+    ensure_worksheet,
+    extract_previous_qty_map,
+    load_existing_sheet_frame,
+    normalize_holdings_dataframe,
+    open_spreadsheet,
+    read_download_table,
+)
 
-print("=========================================")
-print("🌐 구글 시트 접속을 시도합니다...")
-try:
-    gc = gspread.service_account(filename=os.path.join(current_folder, 'google_key.json'))
-    SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit?gid=1831966955#gid=1831966955' 
-    sh = gc.open_by_url(SHEET_URL)
-    google_connected = True
-    print(f"✅ 구글 시트 접속 완료! 문이 열렸습니다.")
-except Exception as e:
-    print(f"⚠️ 구글 접속 실패: {e}")
-    google_connected = False
-print("=========================================\n")
+LOGGER = logging.getLogger(__name__)
+SPREADSHEET_ID = "1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA"
 
-print("📈 한국거래소(KRX) 전체 종목코드 매핑 중...")
-try:
-    krx_df = fdr.StockListing('KRX')
-    krx_dict = {}
-    name_to_code = {} 
-    for _, row in krx_df.iterrows():
-        name = str(row['Name']).strip()
-        krx_dict[name] = {
-            'Close': row['Close'],
-            'ChagesRatio': row['ChagesRatio']
-        }
-        name_to_code[name] = str(row['Code'])
-    print(f"✅ 총 {len(krx_dict):,}개 종목 코드 장전 완료!\n")
-except Exception as e:
-    print(f"⚠️ 코드 스캔 실패: {e}\n")
-    krx_dict = {}
+
+def extract_date_from_filename(filename: str) -> str | None:
+    match = re.search(r"(\d{4}-\d{2}-\d{2}|\d{8})", filename)
+    if not match:
+        return None
+
+    raw = match.group(1)
+    if len(raw) == 8:
+        return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}"
+    return raw
+
+
+def is_weekday(date_str: str) -> bool:
+    dt = pd.to_datetime(date_str, format="%Y-%m-%d", errors="coerce")
+    return pd.notna(dt) and dt.weekday() < 5
+
+
+def extract_etf_name(filename: str) -> str:
+    stem = Path(filename).stem
+    stem = re.sub(r"\d{4}-\d{2}-\d{2}|\d{8}", "", stem)
+    stem = stem.replace("구성종목(PDF)TIME", "")
+    stem = stem.replace("구성종목(PDF)", "")
+    stem = stem.replace("KoAct ", "")
+    stem = stem.replace("TIME", "")
+    stem = stem.replace("PDF", "")
+    stem = re.sub(r"[()_\-]", " ", stem)
+    stem = re.sub(r"\s+", " ", stem).strip()
+    return stem
+
+
+def list_source_files(base_dir: Path) -> Dict[str, List[dict]]:
+    groups: Dict[str, List[dict]] = {}
+
+    for path in base_dir.iterdir():
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in {".csv", ".xlsx", ".xls", ".xlsm", ".html"}:
+            continue
+        if not ("TIME" in path.name or "KoAct" in path.name):
+            continue
+        if any(token in path.name for token in ["30일추적", "변환완료", "통합완료"]):
+            continue
+
+        file_date = extract_date_from_filename(path.name)
+        if not file_date or not is_weekday(file_date):
+            LOGGER.info("주말/날짜불명 파일 스킵: %s", path.name)
+            continue
+
+        etf_name = extract_etf_name(path.name)
+        groups.setdefault(etf_name, []).append({"file": path, "date": file_date})
+
+    return groups
+
+
+def load_market_reference() -> tuple[dict, dict]:
+    krx_df = fdr.StockListing("KRX")
+    latest_price_map = {}
     name_to_code = {}
 
-all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
-             if f.endswith(('.csv', '.xlsx', '.xls')) 
-             and ("TIME" in f or "KoAct" in f) 
-             and "30일추적" not in f 
-             and "변환완료" not in f
-             and "통합완료" not in f]
+    for _, row in krx_df.iterrows():
+        name = str(row["Name"]).strip()
+        latest_price_map[name] = {
+            "Close": row.get("Close", 0),
+            "ChagesRatio": row.get("ChagesRatio", 0),
+        }
+        name_to_code[name] = str(row["Code"])
 
-if not all_files:
-    print("❌ 폴더에 원본 파일이 없습니다.")
-    exit()
+    return latest_price_map, name_to_code
 
-etf_groups = {}
-for f in all_files:
-    fname = os.path.basename(f)
-    date_match = re.search(r'(\d{4}-\d{2}-\d{2}|\d{8})', fname)
-    if not date_match: continue
-    raw_date = date_match.group()
-    
-    if len(raw_date) == 8: file_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
-    else: file_date = raw_date
-        
-    # =====================================================================
-    # 💡 [핵심 패치] 주말(토, 일) 파일은 무조건 쓰레기통으로 던집니다!
-    # =====================================================================
-    try:
-        dt_obj = datetime.strptime(file_date, "%Y-%m-%d")
-        if dt_obj.weekday() >= 5:  # 5는 토요일, 6은 일요일
-            print(f"🚫 주말 데이터 차단됨 (건너뜀): {fname}")
+
+def build_history_cache(stock_names: set[str], start_date: str, name_to_code: dict) -> dict:
+    cache = {}
+
+    for stock_name in stock_names:
+        code = name_to_code.get(stock_name)
+        if not code:
+            cache[stock_name] = {}
             continue
-    except:
-        pass
-        
-    etf_name = re.sub(r'구성종목|PDF|기준\s*가격|\d{4}-\d{2}-\d{2}|\d{8}|\.xlsx|\.csv|\.xls|[()_\-\s]', '', fname).strip()
-    
-    if etf_name not in etf_groups: etf_groups[etf_name] = []
-    etf_groups[etf_name].append({'file': f, 'date': file_date})
 
-def read_etf_data(filepath):
-    if filepath.endswith('.csv'):
-        try: df = pd.read_csv(filepath, encoding='utf-8-sig', header=None)
-        except: df = pd.read_csv(filepath, encoding='cp949', header=None)
-    else:
-        df = pd.read_excel(filepath, header=None)
-        
-    header_idx = 0
-    for i, row in df.iterrows():
-        row_strs = [str(x).replace(' ', '') for x in row.values]
-        if any('종목' in s or '자산' in s for s in row_strs) and any('비중' in s for s in row_strs):
-            header_idx = i
-            break
-            
-    df.columns = df.iloc[header_idx]
-    df = df.iloc[header_idx+1:].reset_index(drop=True)
-    df.columns = [str(c).strip() for c in df.columns]
-    
-    n_col = next((c for c in df.columns if '종목명' in c or '자산명' in c), None)
-    w_col = next((c for c in df.columns if '비중' in c), None)
-    q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수'])), None)
-    
-    if n_col and w_col:
-        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-        if df[w_col].sum() <= 2.0: df[w_col] = df[w_col] * 100
-        df[w_col] = df[w_col].round(2)
-        
-        if q_col:
-            df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            
-        return df, n_col, w_col, q_col
-    else:
-        raise ValueError("종목명이나 비중 컬럼을 찾을 수 없습니다.")
+        try:
+            hist = fdr.DataReader(code, start_date)
+            hist.index = hist.index.strftime("%Y-%m-%d")
+            cache[stock_name] = hist[["Close", "Change"]].to_dict("index")
+        except Exception:
+            cache[stock_name] = {}
 
-for etf_name, files_info in etf_groups.items():
-    print(f"▶️ [{etf_name}] 분석 및 업데이트 시작...")
-    files_info.sort(key=lambda x: x['date'])
-    
+    return cache
+
+
+def format_change(diff: int | None, price_text: str, qty: int) -> str:
+    if diff is None:
+        return f"0{price_text} | Q{qty:,}"
+    if diff > 0:
+        return f"🔴▲ {diff:,}{price_text} | Q{qty:,}"
+    if diff < 0:
+        return f"🔵▼ {abs(diff):,}{price_text} | Q{qty:,}"
+    return f"0{price_text} | Q{qty:,}"
+
+
+def build_price_suffix(
+    stock_name: str,
+    file_date: str,
+    is_last_day: bool,
+    history_cache: dict,
+    latest_price_map: dict,
+) -> str:
+    if stock_name in history_cache and file_date in history_cache[stock_name]:
+        close_price = history_cache[stock_name][file_date].get("Close", 0)
+        change_pct = history_cache[stock_name][file_date].get("Change", 0) * 100
+        return f" | ₩{int(close_price):,} ({change_pct:+.2f}%)"
+
+    if is_last_day and stock_name in latest_price_map:
+        close_price = latest_price_map[stock_name].get("Close", 0)
+        change_pct = latest_price_map[stock_name].get("ChagesRatio", 0)
+        return f" | ₩{int(close_price):,} ({change_pct:+.2f}%)"
+
+    return ""
+
+
+def main() -> int:
+    configure_logging()
+    base_dir = Path(__file__).resolve().parent
+    LOGGER.info("작업 폴더: %s", base_dir)
+
+    spreadsheet = None
     try:
-        existing_df = pd.DataFrame()
+        spreadsheet = open_spreadsheet(SPREADSHEET_ID, base_dir=base_dir)
+        LOGGER.info("구글 시트 연결 성공")
+    except Exception as exc:
+        LOGGER.warning("구글 시트 연결 실패. 로컬 CSV만 생성합니다: %s", exc)
+
+    latest_price_map, name_to_code = load_market_reference()
+    LOGGER.info("KRX 종목 정보 로딩 완료: %d건", len(name_to_code))
+
+    etf_groups = list_source_files(base_dir)
+    if not etf_groups:
+        LOGGER.error("대상 원본 파일이 없습니다.")
+        return 1
+
+    for etf_name, files_info in sorted(etf_groups.items()):
+        LOGGER.info("[%s] 분석 시작", etf_name)
+        files_info.sort(key=lambda item: item["date"])
+
         worksheet = None
-        if google_connected:
-            try:
-                existing_sheets = [ws.title for ws in sh.worksheets()]
-                if etf_name in existing_sheets:
-                    worksheet = sh.worksheet(etf_name)
-                    data = worksheet.get_all_values()
-                    if len(data) > 1:
-                        existing_df = pd.DataFrame(data[1:], columns=data[0])
-            except: pass
-        
-        if not existing_df.empty and 'Date' in existing_df.columns:
-            last_gs_date = existing_df['Date'].max()
-            historical_cols = [c for c in existing_df.columns if c != 'Date' and not c.endswith('_증감')]
-        else:
-            last_gs_date = "1900-01-01"
-            historical_cols = []
-            
-        target_files = [f for f in files_info if f['date'] > last_gs_date]
-        
+        existing_df = pd.DataFrame()
+        if spreadsheet is not None:
+            worksheet, existing_df = load_existing_sheet_frame(spreadsheet, etf_name)
+
+        last_sheet_date = (
+            existing_df["Date"].max()
+            if (not existing_df.empty and "Date" in existing_df.columns)
+            else "1900-01-01"
+        )
+
+        target_files = [item for item in files_info if item["date"] > last_sheet_date]
         if not target_files:
-            print(f"   ✅ 이미 최신 상태입니다. (마지막 업데이트: {last_gs_date}) 스킵!\n")
+            LOGGER.info("[%s] 이미 최신 상태 (마지막 날짜=%s)", etf_name, last_sheet_date)
             continue
 
-        print(f"   => 🔄 새로운 날짜 {len(target_files)}일치 데이터를 추가합니다.")
-        
-        new_dates = [f['date'] for f in target_files if f['date'] > last_gs_date]
-        all_stocks_in_new_files = set()
-        for info in target_files:
+        stock_names = set()
+        for item in target_files:
             try:
-                r_df, r_n_col, r_w_col, _ = read_etf_data(info['file'])
-                top20_names = r_df.dropna(subset=[r_n_col]).sort_values(by=r_w_col, ascending=False).head(20)[r_n_col].tolist()
-                all_stocks_in_new_files.update(top20_names)
-            except: pass
-        
-        global_stock_hist_cache = {}
-        for st_name in all_stocks_in_new_files:
-            code = name_to_code.get(st_name)
-            if code and new_dates:
-                try:
-                    temp_df = fdr.DataReader(code, min(new_dates))
-                    temp_df.index = temp_df.index.strftime('%Y-%m-%d')
-                    global_stock_hist_cache[st_name] = temp_df[['Close', 'Change']].to_dict('index')
-                except:
-                    global_stock_hist_cache[st_name] = {}
+                raw_df = read_download_table(item["file"])
+                df, name_col, weight_col, _, _ = normalize_holdings_dataframe(raw_df)
+                top20 = df.sort_values(by=weight_col, ascending=False).head(20)
+                stock_names.update(top20[name_col].astype(str).tolist())
+            except Exception as exc:
+                LOGGER.warning("[%s] 사전 스캔 실패: %s / %s", etf_name, item["file"].name, exc)
 
-        all_rows = []
-        historical_new_cols = list(historical_cols) 
-        prev_qty = {} 
-        
-        for i, info in enumerate(target_files):
-            is_last_day = (i == len(target_files) - 1)
-            fpath = info['file']
-            fdate = info['date']
-            
-            r_df, r_n_col, r_w_col, r_q_col = read_etf_data(fpath)
-            r_df = r_df[r_df[r_n_col].astype(str).str.strip() != '']
-            r_df = r_df.dropna(subset=[r_n_col])
-            
-            today_top20 = r_df.sort_values(by=r_w_col, ascending=False).head(20)
-            
-            for st_name in today_top20[r_n_col]:
-                if st_name not in historical_new_cols:
-                    historical_new_cols.append(st_name)
-                    
-            row_dict = {'Date': fdate}
-            today_data = r_df.set_index(r_n_col).to_dict('index')
-            
-            for st_name in historical_new_cols:
-                if st_name in today_data:
-                    w = today_data[st_name][r_w_col]
-                    q = today_data[st_name][r_q_col] if r_q_col else 0
-                else:
-                    w = 0; q = 0
-                    
-                price_str = ""
-                if fdate > last_gs_date:
-                    if st_name in global_stock_hist_cache and fdate in global_stock_hist_cache[st_name]:
-                        p = global_stock_hist_cache[st_name][fdate]['Close']
-                        r = global_stock_hist_cache[st_name][fdate]['Change'] * 100
-                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
-                    elif is_last_day and krx_dict and st_name in krx_dict:
-                        p = krx_dict[st_name]['Close']
-                        r = krx_dict[st_name]['ChagesRatio']
-                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
-                        
-                if i == 0 and existing_df.empty:
-                    diff_str = f"-{price_str}" 
-                elif i == 0 and not existing_df.empty:
-                    diff_str = ""
-                else:
-                    diff = q - prev_qty.get(st_name, 0)
-                    if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
-                    elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
-                    else: diff_str = f"0{price_str}"
-                
-                row_dict[st_name] = w
-                row_dict[f"{st_name}_증감"] = diff_str
-                
-            if r_q_col:
-                for st_name, row_data in today_data.items():
-                    prev_qty[st_name] = row_data[r_q_col]
-            
-            if fdate > last_gs_date or existing_df.empty:
-                all_rows.append(row_dict)
-            
-        final_cols = ['Date']
-        for col in historical_new_cols:
-            final_cols.append(col)
-            final_cols.append(f"{col}_증감")
-            
-        new_df = pd.DataFrame(all_rows, columns=final_cols)
-        
-        if not existing_df.empty:
-            final_df = pd.concat([existing_df, new_df], axis=0, ignore_index=True)
-            final_df = final_df.reindex(columns=final_cols)
-        else:
-            final_df = new_df
-            
-        out_name = f"통합완료_{etf_name}.csv"
-        final_df.to_csv(os.path.join(current_folder, out_name), index=False, encoding='utf-8-sig')
-        print(f"   => 💾 PC 저장 (병합 완료): {out_name}")
-        
-        if google_connected:
-            try:
-                if worksheet is None:
-                    worksheet = sh.add_worksheet(title=etf_name, rows="1000", cols="100")
-                
-                final_df_gs = final_df.fillna("")
-                worksheet.clear()
-                worksheet.update(values=[final_df_gs.columns.values.tolist()] + final_df_gs.values.tolist(), range_name="A1")
-                print(f"   => 🌐 구글 시트 탭 스마트 업로드 성공!\n")
-                time.sleep(2) 
-            except Exception as e:
-                print(f"   => ❌ 구글 시트 업로드 실패: {e}\n")
-        
-    except Exception as e:
-        print(f"❌ 실패 [{etf_name}]: {e}\n")
+        history_cache = build_history_cache(stock_names, target_files[0]["date"], name_to_code)
+        previous_qty_map = extract_previous_qty_map(existing_df)
+        ordered_stocks = (
+            [col for col in existing_df.columns if col != "Date" and not col.endswith("_증감")]
+            if not existing_df.empty
+            else []
+        )
 
-print("🎉 모든 스마트 어펜드 공정이 완벽하게 완료되었습니다!")
+        rows_to_append = []
+
+        for idx, item in enumerate(target_files):
+            file_path = item["file"]
+            file_date = item["date"]
+            is_last_day = idx == len(target_files) - 1
+
+            raw_df = read_download_table(file_path)
+            df, name_col, weight_col, qty_col, _ = normalize_holdings_dataframe(raw_df)
+
+            if not qty_col:
+                raise ValueError(f"수량 컬럼이 없어 처리할 수 없습니다: {file_path.name}")
+
+            df = df.sort_values(by=weight_col, ascending=False).head(20).reset_index(drop=True)
+
+            today_map = {
+                row[name_col]: {
+                    "weight": float(row[weight_col]),
+                    "qty": int(row[qty_col]),
+                }
+                for _, row in df.iterrows()
+            }
+
+            for stock in today_map:
+                if stock not in ordered_stocks:
+                    ordered_stocks.append(stock)
+
+            row_dict = {"Date": file_date}
+            next_previous_qty = previous_qty_map.copy()
+
+            for stock in ordered_stocks:
+                current = today_map.get(stock)
+                if current:
+                    weight = current["weight"]
+                    qty = current["qty"]
+                else:
+                    weight = 0
+                    qty = 0
+
+                prev_qty = previous_qty_map.get(stock)
+                diff = 0 if prev_qty is None else qty - prev_qty
+                price_suffix = build_price_suffix(
+                    stock,
+                    file_date,
+                    is_last_day,
+                    history_cache,
+                    latest_price_map,
+                )
+
+                row_dict[stock] = weight
+                row_dict[f"{stock}_증감"] = format_change(diff, price_suffix, qty)
+                next_previous_qty[stock] = qty
+
+            previous_qty_map = next_previous_qty
+            rows_to_append.append(row_dict)
+
+        final_columns = ["Date"]
+        for stock in ordered_stocks:
+            final_columns.extend([stock, f"{stock}_증감"])
+
+        new_df = pd.DataFrame(rows_to_append, columns=final_columns)
+        final_df = pd.concat([existing_df, new_df], ignore_index=True) if not existing_df.empty else new_df
+        final_df = final_df.reindex(columns=final_columns)
+
+        out_path = base_dir / f"통합완료_{etf_name}.csv"
+        final_df.to_csv(out_path, index=False, encoding="utf-8-sig")
+        LOGGER.info("[%s] 로컬 저장 완료 -> %s", etf_name, out_path.name)
+
+        if spreadsheet is not None:
+            worksheet = worksheet or ensure_worksheet(spreadsheet, etf_name, rows=2000, cols=300)
+            worksheet.clear()
+            worksheet.update(
+                range_name="A1",
+                values=[final_df.fillna("").columns.tolist()] + final_df.fillna("").values.tolist(),
+            )
+            LOGGER.info("[%s] 구글 시트 업로드 완료", etf_name)
+
+    LOGGER.info("일괄변환기 종료")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
