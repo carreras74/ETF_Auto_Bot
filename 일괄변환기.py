@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import time
-from datetime import datetime  # 💡 [핵심 패치] 달력 계산기 부품 장착!
+from datetime import datetime, timedelta, timezone # 💡 시차 계산 부품 추가
 
 def install_package(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -27,24 +27,38 @@ import re
 try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
-print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [스마트 어펜드 + 첫줄 절대 매칭 모터] 주말 차단 모드 실행 중...\n")
+# =====================================================================
+# 💡 [시차 명확화 패치] 깃허브(UTC)와 한국(KST)의 시간/날짜를 명확히 분리!
+# 이 코드는 한국 시간(KST) 매일 아침 7시 20분에 실행됩니다.
+# 이때 깃허브 서버(UTC)는 전날 밤 10시 20분이므로, 강제로 KST로 맞춰야 합니다.
+# =====================================================================
+UTC = timezone.utc
+KST = timezone(timedelta(hours=9))
+now_utc = datetime.now(UTC)
+now_kst = datetime.now(KST)
 
+print(f"📂 작업 폴더: {current_folder}")
+print("🚀 [스마트 어펜드 + 종가 자동 매칭 모터] 실행 중...\n")
 print("=========================================")
+print(f"🌍 깃허브 서버 시간 (UTC): {now_utc.strftime('%Y-%m-%d %H:%M:%S')} (기준)")
+print(f"🇰🇷 한국 표준 시간 (KST): {now_kst.strftime('%Y-%m-%d %H:%M:%S')} (실제 적용)")
+print("=========================================\n")
+
+
 print("🌐 구글 시트 접속을 시도합니다...")
 try:
     gc = gspread.service_account(filename=os.path.join(current_folder, 'google_key.json'))
     SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit?gid=1831966955#gid=1831966955' 
     sh = gc.open_by_url(SHEET_URL)
     google_connected = True
-    print(f"✅ 구글 시트 접속 완료! 문이 열렸습니다.")
+    print(f"✅ 구글 시트 접속 완료! 문이 열렸습니다.\n")
 except Exception as e:
-    print(f"⚠️ 구글 접속 실패: {e}")
+    print(f"⚠️ 구글 접속 실패: {e}\n")
     google_connected = False
-print("=========================================\n")
 
-print("📈 한국거래소(KRX) 전체 종목코드 매핑 중...")
+print("📈 한국거래소(KRX) 최신 종가 데이터 매핑 중...")
 try:
+    # 💡 아침 7시 20분 기준이므로, 자연스럽게 '어제' 마감된 최신 종가를 가져옵니다.
     krx_df = fdr.StockListing('KRX')
     krx_dict = {}
     name_to_code = {} 
@@ -55,7 +69,7 @@ try:
             'ChagesRatio': row['ChagesRatio']
         }
         name_to_code[name] = str(row['Code'])
-    print(f"✅ 총 {len(krx_dict):,}개 종목 코드 장전 완료!\n")
+    print(f"✅ 총 {len(krx_dict):,}개 종목 종가 장전 완료!\n")
 except Exception as e:
     print(f"⚠️ 코드 스캔 실패: {e}\n")
     krx_dict = {}
@@ -82,12 +96,9 @@ for f in all_files:
     if len(raw_date) == 8: file_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
     else: file_date = raw_date
         
-    # =====================================================================
-    # 💡 [핵심 패치] 주말(토, 일) 파일은 무조건 쓰레기통으로 던집니다!
-    # =====================================================================
     try:
         dt_obj = datetime.strptime(file_date, "%Y-%m-%d")
-        if dt_obj.weekday() >= 5:  # 5는 토요일, 6은 일요일
+        if dt_obj.weekday() >= 5: 
             print(f"🚫 주말 데이터 차단됨 (건너뜀): {fname}")
             continue
     except:
@@ -215,10 +226,18 @@ for etf_name, files_info in etf_groups.items():
                     
                 price_str = ""
                 if fdate > last_gs_date:
-                    if st_name in global_stock_hist_cache and fdate in global_stock_hist_cache[st_name]:
-                        p = global_stock_hist_cache[st_name][fdate]['Close']
-                        r = global_stock_hist_cache[st_name][fdate]['Change'] * 100
-                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
+                    # 💡 [핵심 패치] 정확한 당일 종가가 없으면, 가장 최근 장 마감(어제) 종가를 똑똑하게 찾아옵니다!
+                    if st_name in global_stock_hist_cache:
+                        available_dates = [d for d in global_stock_hist_cache[st_name].keys() if d <= fdate]
+                        if available_dates:
+                            best_date = max(available_dates) 
+                            p = global_stock_hist_cache[st_name][best_date]['Close']
+                            r = global_stock_hist_cache[st_name][best_date]['Change'] * 100
+                            price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
+                        elif is_last_day and krx_dict and st_name in krx_dict:
+                            p = krx_dict[st_name]['Close']
+                            r = krx_dict[st_name]['ChagesRatio']
+                            price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
                     elif is_last_day and krx_dict and st_name in krx_dict:
                         p = krx_dict[st_name]['Close']
                         r = krx_dict[st_name]['ChagesRatio']
