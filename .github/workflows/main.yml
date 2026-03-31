@@ -2,9 +2,10 @@ name: ETF Auto Collector
 
 on:
   schedule:
-    # 💡 [트래픽 회피 패치] 사람들이 몰리는 20분을 피해, 17분(홀수 분)으로 하이패스 설정!
-    # 한국 시간(KST) 월~금 아침 7시 17분 동작 (UTC 기준: 일~목 밤 10시 17분)
-    - cron: '17 22 * * 0-4'
+    # 💡 [시간 및 트래픽 최적화 패치]
+    # 한국 시간(KST) 월~금 오전 9시 05분 동작 (영업일 시작 시점)
+    # 🌍 UTC 기준: 월~금 오전 00시 05분
+    - cron: '5 0 * * 1-5'
   workflow_dispatch: 
 
 jobs:
@@ -40,4 +41,3 @@ jobs:
       env:
         GOOGLE_KEY: ${{ secrets.GOOGLE_KEY }}
       run: python TIGER_collector.py
-
