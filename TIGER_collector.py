@@ -19,15 +19,18 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-print("🚀 [TIGER 자동 수집기] 종목 누락 방지 + 순정 포맷 복구 모드 가동!")
+print("🚀 [TIGER 자동 수집기] T-1일 날짜 매칭 + 불도저 재시도 + 순정 포맷 가동!")
 
-# 평일 기준 당일 날짜 세팅
+# 💡 [날짜 패치] TIGER는 무조건 하루 전(T-1) 영업일 데이터를 가져오도록 세팅!
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 
-if now.weekday() == 5: target_date = now - timedelta(days=1)
-elif now.weekday() == 6: target_date = now - timedelta(days=2)
-else: target_date = now
+if now.weekday() == 0: # 월요일 아침 -> 금요일(-3)
+    target_date = now - timedelta(days=3)
+elif now.weekday() == 6: # 일요일 -> 금요일(-2)
+    target_date = now - timedelta(days=2)
+else: # 화, 수, 목, 금, 토 아침 -> 하루 전(-1)
+    target_date = now - timedelta(days=1)
 
 formatted_date = target_date.strftime("%Y-%m-%d")
 print(f"📅 데이터 기록 기준일: {formatted_date}\n")
@@ -76,7 +79,6 @@ driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
 })
 wait = WebDriverWait(driver, 20)
 
-# 💡 [핵심 패치 1] 쪼개진 HTML 표를 완벽하게 하나로 합치는 파쇄기 장착!
 def read_tiger_excel(filepath):
     try: dfs = pd.read_html(filepath, encoding='utf-8')
     except:
@@ -112,40 +114,52 @@ def read_tiger_excel(filepath):
     valid_qty_idx = df['수량(주)'] > 0
     df.loc[valid_qty_idx, '주가'] = (df.loc[valid_qty_idx, '평가금액(원)'] / df.loc[valid_qty_idx, '수량(주)']).astype(int)
     
-    # 💡 [핵심 패치 2] 1군(TIME/KoAct)처럼 정확하게 Top 20만 추출!
     return df.sort_values(by='비중(%)', ascending=False).head(20).reset_index(drop=True)
 
 for etf_name, room_url in tiger_rooms.items():
     print(f"\n▶️ [{etf_name}] 수집 시작...")
-    driver.get(room_url)
-    time.sleep(3)
     
-    try:
-        driver.execute_script("""
-            var popups = document.querySelectorAll('[class*="popup"], [class*="layer"], [class*="modal"], [id*="popup"]');
-            popups.forEach(function(el) { el.remove(); });
-        """)
-    except: pass
+    excel_buttons = []
+    target_button = None
     
-    for step in range(1, 6):
-        driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/5));")
-        time.sleep(1.5)
-    
-    xpath_excel = (
-        "//a[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀') or contains(translate(text(), 'EXCEL', 'excel'), 'excel')] | "
-        "//button[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀')] | "
-        "//span[contains(text(), '엑셀')]/parent::a | "
-        "//img[contains(@alt, '엑셀')]/parent::a | "
-        "//a[@title='엑셀 다운로드']"
-    )
-    
-    try:
-        excel_buttons = wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_excel)))
-    except:
-        print("❌ 20초 대기 초과 (엑셀 버튼 없음)")
-        continue
+    for attempt in range(2):
+        driver.get(room_url)
+        time.sleep(5) 
         
-    target_button = excel_buttons[-1]
+        try:
+            driver.execute_script("""
+                var popups = document.querySelectorAll('[class*="popup"], [class*="layer"], [class*="modal"], [id*="popup"]');
+                popups.forEach(function(el) { el.remove(); });
+            """)
+        except: pass
+        
+        for step in range(1, 7):
+            driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/6));")
+            time.sleep(1)
+        
+        xpath_excel = (
+            "//a[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀') or contains(translate(text(), 'EXCEL', 'excel'), 'excel')] | "
+            "//button[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀')] | "
+            "//span[contains(text(), '엑셀')]/parent::a | "
+            "//img[contains(@alt, '엑셀')]/parent::a | "
+            "//a[@title='엑셀 다운로드'] | "
+            "//a[contains(@href, 'excel')]"
+        )
+        
+        try:
+            excel_buttons = wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_excel)))
+            if excel_buttons:
+                target_button = excel_buttons[-1]
+                break 
+        except:
+            if attempt == 0:
+                print("   ⚠️ 사이트 로딩 지연. 새로고침 후 재시도합니다...")
+            else:
+                print("❌ 20초 대기 초과 (엑셀 버튼 없음)")
+                
+    if not target_button:
+        continue 
+        
     driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
     time.sleep(1.5)
     
@@ -168,7 +182,6 @@ for etf_name, room_url in tiger_rooms.items():
         
     print("✅ 다운로드 성공. 데이터 변환 중...")
     
-    # 💡 [핵심 패치 3] 원본 파일을 이름표 달아서 저장 (다음 날 수량 계산용)
     ext = os.path.splitext(new_file_path)[1]
     final_name = f"TIGER_{etf_name}_{formatted_date}{ext}"
     final_path = os.path.join(target_dir, final_name)
@@ -183,7 +196,6 @@ for etf_name, room_url in tiger_rooms.items():
 
     today_dict = {row['종목명']: {'비중': row['비중(%)'], '수량': row['수량(주)'], '주가': row['주가']} for _, row in df.iterrows()}
 
-    # 💡 [핵심 패치 4] 어제 저장해둔 파일을 몰래 열어서 진짜 수량(Q)을 읽어옵니다!
     prev_qty = {}
     past_files = [f for f in glob.glob(os.path.join(target_dir, f"TIGER_{etf_name}_*.*")) if formatted_date not in f]
     past_files.sort()
@@ -207,7 +219,7 @@ for etf_name, room_url in tiger_rooms.items():
         for stock in today_dict.keys():
             v = today_dict[stock]
             price_str = f" | ₩{int(v['주가']):,}"
-            row_data.extend([v['비중'], f"0{price_str}"]) # 꼬리표 없는 순정
+            row_data.extend([v['비중'], f"0{price_str}"]) 
         ws.update(range_name='A1', values=[headers, row_data])
         print("✅ 첫 데이터 업로드 완료")
         continue
@@ -233,7 +245,6 @@ for etf_name, room_url in tiger_rooms.items():
         diff = curr_qty - p_qty
         price_str = f" | ₩{int(current_data['주가']):,}"
         
-        # 💡 [핵심 패치 5] 선생님이 원하시던 완벽한 순정 포맷!
         if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
         elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
         else: diff_str = f"0{price_str}"
@@ -246,7 +257,6 @@ for etf_name, room_url in tiger_rooms.items():
 
 driver.quit()
 
-# 찌꺼기 파일 청소 (TIGER 원본 파일은 다음날 계산을 위해 남겨둡니다)
 print("\n🧹 찌꺼기 파일 청소 중...")
 for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
     fname = os.path.basename(f)
