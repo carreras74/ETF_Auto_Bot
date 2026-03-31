@@ -2,268 +2,140 @@ import os
 import time
 import glob
 import shutil
-from datetime import datetime, timedelta, timezone 
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait 
-from selenium.webdriver.support import expected_conditions as EC 
 from webdriver_manager.chrome import ChromeDriverManager
-import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
-import json
-import re
-import warnings
 
-warnings.filterwarnings('ignore')
-
-print("🚀 [TIGER 자동 수집기] 안티봇 우회 + 강제 클릭 모드 가동!")
-
-KST = timezone(timedelta(hours=9))
-now = datetime.now(KST)
-
-if now.weekday() == 0: target_date = now - timedelta(days=3)
-elif now.weekday() == 6: target_date = now - timedelta(days=2)
-else: target_date = now - timedelta(days=1)
-
-formatted_date = target_date.strftime("%Y-%m-%d")
-print(f"📅 데이터 기록 기준일: {formatted_date}\n")
-
-try:
-    google_key_json = os.environ.get('GOOGLE_KEY')
-    creds_dict = json.loads(google_key_json)
-    scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-    credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    gc = gspread.authorize(credentials)
-    spreadsheet_id = "1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA"
-    sh = gc.open_by_key(spreadsheet_id)
-    print("✅ 구글 시트 연결 성공")
-except Exception as e:
-    print(f"❌ 구글 시트 연결 실패: {e}")
-    exit(1)
-
-target_dir = os.getcwd()
+# 내 컴퓨터에서 실행한 폴더에 엑셀 파일이 다운로드 됩니다.
+target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
 
+date_koact = datetime.now().strftime("%Y%m%d")  
+
+print(f"📍 내 컴퓨터 작업 위치: {target_dir}")
+print(f"🚀 [로컬 테스트] TIGER 4종목 엑셀 다운로드 훈련 시작!\n")
+
 tiger_rooms = {
-    "TIGER 기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7387280001",
-    "TIGER 코리아테크액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7365040005",
-    "TIGER 퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007"
+    "코리아테크액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007",
+    "AI코리아그로스액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7365040005",
+    "퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7387280001",
+    "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
+# 💡 내 컴퓨터에서는 크롬 창이 직접 뜨도록 '--headless' 등의 옵션을 제외했습니다.
 chrome_options = Options()
-chrome_options.add_argument('--headless=new')
-chrome_options.add_argument('--no-sandbox')
-chrome_options.add_argument('--disable-dev-shm-usage')
-chrome_options.add_argument('--disable-gpu') 
-chrome_options.add_argument('--window-size=1920,1080')
+chrome_options.add_argument('--window-size=1920x1080')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-chrome_options.add_argument("--disable-blink-features=AutomationControlled") 
-chrome_options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging']) 
+chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
 chrome_options.add_experimental_option("prefs", {
     "download.default_directory": download_dir,
     "download.prompt_for_download": False,
+    "download.directory_upgrade": True,
+    "safebrowsing.enabled": True, 
+    "profile.default_content_setting_values.automatic_downloads": 1 
 })
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-    "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
-})
-# 💡 [핵심 패치 1] 버튼을 찾는 최대 대기 시간을 35초로 대폭 늘렸습니다.
-wait = WebDriverWait(driver, 35)
+driver.set_page_load_timeout(30)
 
-def read_tiger_excel(filepath):
-    try: dfs = pd.read_html(filepath, encoding='utf-8')
-    except:
-        try: dfs = pd.read_html(filepath, encoding='cp949') 
-        except: return pd.DataFrame()
-
-    all_tables = []
-    for temp_df in dfs:
-        header_idx = -1
-        if '종목명' in temp_df.columns:
-            all_tables.append(temp_df.copy())
-        else:
-            for i in range(len(temp_df)):
-                if '종목명' in str(temp_df.iloc[i].values):
-                    header_idx = i
-                    break
-            if header_idx != -1:
-                temp_df.columns = temp_df.iloc[header_idx]
-                all_tables.append(temp_df.iloc[header_idx+1:].copy())
-                
-    if not all_tables: return pd.DataFrame()
-    
-    df = pd.concat(all_tables, ignore_index=True)
-    df.columns = [str(c).strip() for c in df.columns]
-    df = df[df['종목명'] != '종목명']
-    df = df.dropna(subset=['종목명', '수량(주)', '비중(%)'])
-    df = df[~df['종목명'].astype(str).str.contains('원화예금|현금|설정|해지', na=False)]
-    
-    df['비중(%)'] = pd.to_numeric(df['비중(%)'].astype(str).str.replace(',', ''), errors='coerce')
-    df['수량(주)'] = pd.to_numeric(df['수량(주)'].astype(str).str.replace(',', ''), errors='coerce')
-    df['평가금액(원)'] = pd.to_numeric(df['평가금액(원)'].astype(str).str.replace(',', ''), errors='coerce')
-    df['주가'] = 0
-    valid_qty_idx = df['수량(주)'] > 0
-    df.loc[valid_qty_idx, '주가'] = (df.loc[valid_qty_idx, '평가금액(원)'] / df.loc[valid_qty_idx, '수량(주)']).astype(int)
-    
-    return df.sort_values(by='비중(%)', ascending=False).head(20).reset_index(drop=True)
-
-for etf_name, room_url in tiger_rooms.items():
-    print(f"\n▶️ [{etf_name}] 수집 시작...")
-    
-    excel_buttons = []
-    target_button = None
-    
-    for attempt in range(2):
+try:
+    for etf_name, room_url in tiger_rooms.items():
+        print(f"🏢 [TIGER] {etf_name} 사이트 진입 중...")
         driver.get(room_url)
-        # 💡 [핵심 패치 2] 로봇 검사 화면이 지나가도록 진득하게 8초를 기다립니다.
-        time.sleep(8) 
         
-        try:
-            driver.execute_script("""
-                var popups = document.querySelectorAll('[class*="popup"], [class*="layer"], [class*="modal"], [id*="popup"]');
-                popups.forEach(function(el) { el.remove(); });
-            """)
-        except: pass
+        before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
+        found_and_clicked = False
         
-        for step in range(1, 7):
-            driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/6));")
+        # 1. 스크롤을 천천히 내리면서 표를 로딩시킵니다. (눈으로 확인해 보세요!)
+        for step in range(1, 11):
+            driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
             time.sleep(1)
         
-        xpath_excel = (
-            "//a[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀') or contains(translate(text(), 'EXCEL', 'excel'), 'excel')] | "
-            "//button[contains(@class, 'excel') or contains(@class, 'xls') or contains(text(), '엑셀')] | "
-            "//span[contains(text(), '엑셀')]/parent::a | "
-            "//img[contains(@alt, '엑셀')]/parent::a | "
-            "//a[@title='엑셀 다운로드'] | "
-            "//a[contains(@href, 'excel')]"
-        )
+        time.sleep(2)
         
-        try:
-            excel_buttons = wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_excel)))
-            if excel_buttons:
-                target_button = excel_buttons[-1]
-                break 
-        except:
-            if attempt == 0:
-                print("   ⚠️ 보안 시스템 감지 또는 로딩 지연. 새로고침(F5) 후 재돌파합니다...")
-            else:
-                print("❌ 35초 대기 초과. (서버가 봇을 차단했습니다)")
+        # 2. '엑셀다운로드' 버튼을 찾아 클릭합니다.
+        for _ in range(15): 
+            clicked = driver.execute_script("""
+                // 대표님이 말씀하신 '자산구성' 구역의 엑셀 버튼을 정확히 노립니다.
+                var allDivs = Array.from(document.querySelectorAll('div, section, article'));
+                var targetSection = null;
+                for (var i = 0; i < allDivs.length; i++) {
+                    var txt = allDivs[i].innerText || allDivs[i].textContent || "";
+                    if (txt.replace(/\\s+/g, '').includes('자산구성(구성종목')) {
+                        targetSection = allDivs[i];
+                        break;
+                    }
+                }
                 
-    if not target_button:
-        continue 
-        
-    driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
-    time.sleep(2)
-    
-    before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-    
-    # 💡 [핵심 패치 3] 클릭이 씹히는 현상을 막기 위해 더블 클릭(일반 클릭 + 강제 스크립트 클릭) 시전
-    try:
-        target_button.click()
-    except:
-        driver.execute_script("arguments[0].click();", target_button)
-    
-    new_file_path = None
-    for _ in range(20):
-        time.sleep(1)
-        after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-        new_files = after_files - before_files
-        excel_files = [f for f in new_files if (f.endswith('.xlsx') or f.endswith('.xls') or f.endswith('.csv')) and not f.endswith('.crdownload') and not f.endswith('.tmp')]
-        if excel_files:
-            new_file_path = list(excel_files)[0]
-            break
+                if (targetSection) {
+                    var btns = Array.from(targetSection.querySelectorAll('a, button, span'));
+                    var excelBtn = btns.find(function(b) {
+                        var bTxt = b.innerText || b.textContent || "";
+                        return bTxt.replace(/\\s+/g, '').includes('엑셀다운로드');
+                    });
+                    if (excelBtn) {
+                        excelBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
+                        excelBtn.click();
+                        return true;
+                    }
+                }
+                
+                // 혹시 못 찾으면 화면 전체에서 3번째 혹은 마지막 엑셀 버튼 타격!
+                var fallbackBtns = Array.from(document.querySelectorAll('a, button, span')).filter(function(el) {
+                    var txt = el.innerText || el.textContent || "";
+                    return txt.replace(/\\s+/g, '').includes('엑셀다운로드');
+                });
+                
+                if (fallbackBtns.length >= 3) {
+                    fallbackBtns[2].scrollIntoView({block: 'center'});
+                    fallbackBtns[2].click();
+                    return true;
+                } else if (fallbackBtns.length > 0) {
+                    fallbackBtns[fallbackBtns.length - 1].scrollIntoView({block: 'center'});
+                    fallbackBtns[fallbackBtns.length - 1].click();
+                    return true;
+                }
+                
+                return false;
+            """)
+            if clicked:
+                found_and_clicked = True
+                print(f"📥 [{etf_name}] 자산구성 엑셀 클릭 완료!", flush=True)
+                break
+            time.sleep(1)
             
-    if not new_file_path:
-        print("❌ 다운로드 실패 (클릭은 했으나 파일이 안 내려옴)")
-        continue
-        
-    print("✅ 다운로드 성공. 데이터 변환 중...")
-    
-    ext = os.path.splitext(new_file_path)[1]
-    final_name = f"TIGER_{etf_name}_{formatted_date}{ext}"
-    final_path = os.path.join(target_dir, final_name)
-    if os.path.abspath(new_file_path) != os.path.abspath(final_path):
-        if os.path.exists(final_path): os.remove(final_path)
-        shutil.move(new_file_path, final_path)
-    
-    df = read_tiger_excel(final_path)
-    if df.empty: 
-        print("❌ 변환 실패")
-        continue
+        if found_and_clicked:
+            new_file_path = None
+            for _ in range(10):
+                time.sleep(1)
+                after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
+                new_files = after_files - before_files
+                excel_files = [f for f in new_files if (f.endswith('.xlsx') or f.endswith('.xls') or f.endswith('.csv')) and not f.endswith('.crdownload') and not f.endswith('.tmp')]
+                
+                if excel_files:
+                    new_file_path = list(excel_files)[0]
+                    break
+            
+            if new_file_path:
+                ext = os.path.splitext(new_file_path)[1]
+                final_name = f"TIGER {etf_name}_{date_koact}{ext}"
+                final_path = os.path.join(target_dir, final_name)
+                
+                if new_file_path != final_path:
+                    if os.path.exists(final_path): os.remove(final_path)
+                    shutil.move(new_file_path, final_path)
+                    
+                print(f"✅ [{etf_name}] 수집 성공! 파일명: {final_name}\n")
+            else: 
+                print(f"⚠️ [{etf_name}] 다운로드 지연.\n")
+        else: 
+            print(f"❌ [{etf_name}] 엑셀 버튼을 찾을 수 없습니다.\n")
 
-    today_dict = {row['종목명']: {'비중': row['비중(%)'], '수량': row['수량(주)'], '주가': row['주가']} for _, row in df.iterrows()}
-
-    prev_qty = {}
-    past_files = [f for f in glob.glob(os.path.join(target_dir, f"TIGER_{etf_name}_*.*")) if formatted_date not in f]
-    past_files.sort()
-    if past_files:
-        last_file = past_files[-1]
-        prev_df = read_tiger_excel(last_file)
-        if not prev_df.empty:
-            for _, row in prev_df.iterrows():
-                prev_qty[row['종목명']] = row['수량(주)']
-
-    try: ws = sh.worksheet(etf_name)
-    except gspread.exceptions.WorksheetNotFound: ws = sh.add_worksheet(title=etf_name, rows="1000", cols="100")
-        
-    raw_data = ws.get_all_values()
-    existing_data = [row for row in raw_data if any(str(cell).strip() for cell in row)]
-    
-    if not existing_data:
-        headers = ["일자"]
-        for stock in today_dict.keys(): headers.extend([stock, f"{stock}_증감"])
-        row_data = [formatted_date]
-        for stock in today_dict.keys():
-            v = today_dict[stock]
-            price_str = f" | ₩{int(v['주가']):,}"
-            row_data.extend([v['비중'], f"0{price_str}"])
-        ws.update(range_name='A1', values=[headers, row_data])
-        print("✅ 첫 데이터 업로드 완료")
-        continue
-        
-    headers = existing_data[0]
-    last_row = existing_data[-1]
-    
-    if last_row[0] == formatted_date:
-        print(f"⏩ 이미 {formatted_date} 데이터가 있습니다 (스킵)")
-        continue
-        
-    new_stocks = [s for s in today_dict.keys() if s not in headers]
-    if new_stocks:
-        for ns in new_stocks: headers.extend([ns, f"{ns}_증감"])
-        ws.update(range_name='A1', values=[headers])
-
-    new_row = [formatted_date] + [""] * (len(headers) - 1)
-    for stock_name, current_data in today_dict.items():
-        idx = headers.index(stock_name)
-        curr_qty = current_data['수량']
-        p_qty = prev_qty.get(stock_name, 0)
-        
-        diff = curr_qty - p_qty
-        price_str = f" | ₩{int(current_data['주가']):,}"
-        
-        if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
-        elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
-        else: diff_str = f"0{price_str}"
-        
-        new_row[idx] = current_data['비중']
-        new_row[idx+1] = diff_str
-        
-    ws.append_row(new_row)
-    print(f"✅ 구글 시트 {formatted_date} 데이터 업데이트 완료")
-
-driver.quit()
-
-print("\n🧹 찌꺼기 파일 청소 중...")
-for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
-    fname = os.path.basename(f)
-    if "매입장부" not in fname and "TIME" not in fname and "KoAct" not in fname and "TIGER" not in fname:
-        try: os.remove(f)
-        except: pass
-
-print("\n✨ 모든 작업 완료!")
+finally:
+    time.sleep(3)
+    driver.quit()
+    print("✨ 내 컴퓨터 테스트 완료! 바탕화면에 엑셀이 받아졌는지 확인해 보세요!")
 
