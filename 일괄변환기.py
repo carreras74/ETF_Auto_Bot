@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import time
-from datetime import datetime, timedelta, timezone # 💡 시차 계산 부품 추가
+from datetime import datetime, timedelta, timezone
 
 def install_package(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -27,23 +27,17 @@ import re
 try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
-# =====================================================================
-# 💡 [시차 명확화 패치] 깃허브(UTC)와 한국(KST)의 시간/날짜를 명확히 분리!
-# 이 코드는 한국 시간(KST) 매일 아침 7시 20분에 실행됩니다.
-# 이때 깃허브 서버(UTC)는 전날 밤 10시 20분이므로, 강제로 KST로 맞춰야 합니다.
-# =====================================================================
 UTC = timezone.utc
 KST = timezone(timedelta(hours=9))
 now_utc = datetime.now(UTC)
 now_kst = datetime.now(KST)
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [스마트 어펜드 + 종가 자동 매칭 모터] 실행 중...\n")
+print("🚀 [당일 표지 + 전날 종가 + 수량증감 복구] 모터 실행 중...\n")
 print("=========================================")
-print(f"🌍 깃허브 서버 시간 (UTC): {now_utc.strftime('%Y-%m-%d %H:%M:%S')} (기준)")
-print(f"🇰🇷 한국 표준 시간 (KST): {now_kst.strftime('%Y-%m-%d %H:%M:%S')} (실제 적용)")
+print(f"🌍 깃허브 서버 시간 (UTC): {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
+print(f"🇰🇷 한국 표준 시간 (KST): {now_kst.strftime('%Y-%m-%d %H:%M:%S')}")
 print("=========================================\n")
-
 
 print("🌐 구글 시트 접속을 시도합니다...")
 try:
@@ -51,14 +45,14 @@ try:
     SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ZxIYeERuOWOWZudyjpMWpEWA0eljOct_uO9gXg6_2JA/edit?gid=1831966955#gid=1831966955' 
     sh = gc.open_by_url(SHEET_URL)
     google_connected = True
-    print(f"✅ 구글 시트 접속 완료! 문이 열렸습니다.\n")
+    print(f"✅ 구글 시트 접속 완료!\n")
 except Exception as e:
     print(f"⚠️ 구글 접속 실패: {e}\n")
     google_connected = False
 
-print("📈 한국거래소(KRX) 최신 종가 데이터 매핑 중...")
+print("📈 한국거래소(KRX) 최신 종가(어제 마감 기준) 매핑 중...")
 try:
-    # 💡 아침 7시 20분 기준이므로, 자연스럽게 '어제' 마감된 최신 종가를 가져옵니다.
+    # 💡 아침에 실행하면 fdr은 무조건 가장 최근(어제) 마감된 종가를 뱉어냅니다.
     krx_df = fdr.StockListing('KRX')
     krx_dict = {}
     name_to_code = {} 
@@ -69,7 +63,7 @@ try:
             'ChagesRatio': row['ChagesRatio']
         }
         name_to_code[name] = str(row['Code'])
-    print(f"✅ 총 {len(krx_dict):,}개 종목 종가 장전 완료!\n")
+    print(f"✅ 총 {len(krx_dict):,}개 종목 가격표 장전 완료!\n")
 except Exception as e:
     print(f"⚠️ 코드 스캔 실패: {e}\n")
     krx_dict = {}
@@ -175,32 +169,28 @@ for etf_name, files_info in etf_groups.items():
 
         print(f"   => 🔄 새로운 날짜 {len(target_files)}일치 데이터를 추가합니다.")
         
-        new_dates = [f['date'] for f in target_files if f['date'] > last_gs_date]
-        all_stocks_in_new_files = set()
-        for info in target_files:
-            try:
-                r_df, r_n_col, r_w_col, _ = read_etf_data(info['file'])
-                top20_names = r_df.dropna(subset=[r_n_col]).sort_values(by=r_w_col, ascending=False).head(20)[r_n_col].tolist()
-                all_stocks_in_new_files.update(top20_names)
-            except: pass
-        
-        global_stock_hist_cache = {}
-        for st_name in all_stocks_in_new_files:
-            code = name_to_code.get(st_name)
-            if code and new_dates:
+        # =====================================================================
+        # 💡 [핵심 수리] 빈칸 증발 버그의 원인 제거!
+        # 어제(구글 시트에 마지막으로 적힌 날짜)의 원본 엑셀 파일을 미리 뜯어봐서,
+        # '어제 수량(prev_qty)'을 완벽하게 기억해둡니다.
+        # =====================================================================
+        prev_qty = {}
+        if not existing_df.empty:
+            past_files = [f for f in files_info if f['date'] <= last_gs_date]
+            if past_files:
+                last_past_file = past_files[-1]
                 try:
-                    temp_df = fdr.DataReader(code, min(new_dates))
-                    temp_df.index = temp_df.index.strftime('%Y-%m-%d')
-                    global_stock_hist_cache[st_name] = temp_df[['Close', 'Change']].to_dict('index')
-                except:
-                    global_stock_hist_cache[st_name] = {}
-
+                    p_df, p_n_col, _, p_q_col = read_etf_data(last_past_file['file'])
+                    if p_q_col:
+                        past_data = p_df.set_index(p_n_col).to_dict('index')
+                        for st_name, row_data in past_data.items():
+                            prev_qty[st_name] = row_data[p_q_col]
+                except: pass
+        
         all_rows = []
         historical_new_cols = list(historical_cols) 
-        prev_qty = {} 
         
         for i, info in enumerate(target_files):
-            is_last_day = (i == len(target_files) - 1)
             fpath = info['file']
             fdate = info['date']
             
@@ -225,33 +215,21 @@ for etf_name, files_info in etf_groups.items():
                     w = 0; q = 0
                     
                 price_str = ""
-                if fdate > last_gs_date:
-                    # 💡 [핵심 패치] 정확한 당일 종가가 없으면, 가장 최근 장 마감(어제) 종가를 똑똑하게 찾아옵니다!
-                    if st_name in global_stock_hist_cache:
-                        available_dates = [d for d in global_stock_hist_cache[st_name].keys() if d <= fdate]
-                        if available_dates:
-                            best_date = max(available_dates) 
-                            p = global_stock_hist_cache[st_name][best_date]['Close']
-                            r = global_stock_hist_cache[st_name][best_date]['Change'] * 100
-                            price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
-                        elif is_last_day and krx_dict and st_name in krx_dict:
-                            p = krx_dict[st_name]['Close']
-                            r = krx_dict[st_name]['ChagesRatio']
-                            price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
-                    elif is_last_day and krx_dict and st_name in krx_dict:
-                        p = krx_dict[st_name]['Close']
-                        r = krx_dict[st_name]['ChagesRatio']
-                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
+                # =====================================================================
+                # 💡 [핵심 수리] 날짜 상관없이 무조건 krx_dict(어제 종가)를 쑤셔 넣습니다!
+                # =====================================================================
+                if st_name in krx_dict:
+                    p = krx_dict[st_name]['Close']
+                    r = krx_dict[st_name]['ChagesRatio']
+                    price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
                         
-                if i == 0 and existing_df.empty:
-                    diff_str = f"-{price_str}" 
-                elif i == 0 and not existing_df.empty:
-                    diff_str = ""
-                else:
-                    diff = q - prev_qty.get(st_name, 0)
-                    if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
-                    elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
-                    else: diff_str = f"0{price_str}"
+                # =====================================================================
+                # 💡 [핵심 수리] 수량 증감(diff) 계산 복구!
+                # =====================================================================
+                diff = q - prev_qty.get(st_name, 0)
+                if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
+                elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
+                else: diff_str = f"0{price_str}"
                 
                 row_dict[st_name] = w
                 row_dict[f"{st_name}_증감"] = diff_str
@@ -260,8 +238,7 @@ for etf_name, files_info in etf_groups.items():
                 for st_name, row_data in today_data.items():
                     prev_qty[st_name] = row_data[r_q_col]
             
-            if fdate > last_gs_date or existing_df.empty:
-                all_rows.append(row_dict)
+            all_rows.append(row_dict)
             
         final_cols = ['Date']
         for col in historical_new_cols:
@@ -278,7 +255,6 @@ for etf_name, files_info in etf_groups.items():
             
         out_name = f"통합완료_{etf_name}.csv"
         final_df.to_csv(os.path.join(current_folder, out_name), index=False, encoding='utf-8-sig')
-        print(f"   => 💾 PC 저장 (병합 완료): {out_name}")
         
         if google_connected:
             try:
