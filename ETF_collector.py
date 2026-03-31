@@ -13,16 +13,16 @@ from webdriver_manager.chrome import ChromeDriverManager
 target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
 
-# 💡 [핵심 패치] 아침 7시에 실행되므로 무조건 '전날' 영업일 기준 날짜를 찍습니다.
+# 💡 [날짜 완벽 패치] 평일에는 무조건 '오늘' 한국 시간 날짜를 씁니다!
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 
-if now.weekday() == 0: # 월요일 아침 -> 금요일(-3일)
-    target_date = now - timedelta(days=3)
-elif now.weekday() == 6: # 일요일 아침 -> 금요일(-2일)
-    target_date = now - timedelta(days=2)
-else: # 화, 수, 목, 금, 토 아침 -> 하루 전날(-1일)
+if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
     target_date = now - timedelta(days=1)
+elif now.weekday() == 6: # 일요일(6) -> 금요일(-2)
+    target_date = now - timedelta(days=2)
+else: # 월, 화, 수, 목, 금 -> 무조건 오늘!
+    target_date = now
 
 date_time = target_date.strftime("%Y-%m-%d") # TIME용
 date_koact = target_date.strftime("%Y%m%d")   # KoAct용
