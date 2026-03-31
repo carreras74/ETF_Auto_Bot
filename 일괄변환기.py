@@ -29,7 +29,7 @@ KST = timezone(timedelta(hours=9))
 now_kst = datetime.now(KST)
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [순정 포맷 복구 모터] 실행 중...\n")
+print("🚀 [초강력 데이터 파싱 + 순정 포맷 복원 모터] 실행 중...\n")
 print(f"🇰🇷 한국 표준 시간: {now_kst.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
 print("🌐 구글 시트 접속 중...")
@@ -85,16 +85,24 @@ def read_etf_data(filepath):
             break
     df.columns = df.iloc[header_idx]
     df = df.iloc[header_idx+1:].reset_index(drop=True)
-    df.columns = [str(c).strip() for c in df.columns]
     
-    n_col = next((c for c in df.columns if '종목명' in c or '자산명' in c), None)
+    # 💡 [핵심 패치 1] 컬럼명에서 모든 공백 무시 ('주식 수' -> '주식수')
+    df.columns = [str(c).replace(' ', '').strip() for c in df.columns]
+    
+    n_col = next((c for c in df.columns if '종목' in c or '자산' in c), None)
     w_col = next((c for c in df.columns if '비중' in c), None)
-    q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수'])), None)
+    q_col = next((c for c in df.columns if '수량' in c or '주식수' in c or '계약수' in c), None)
     
     if n_col and w_col:
-        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+        # 💡 [핵심 패치 2] 종목명에서 모든 공백 무시 ('삼성전자 ' -> '삼성전자')
+        df[n_col] = df[n_col].astype(str).str.replace(' ', '').str.strip()
+        
+        # 💡 [핵심 패치 3] 비중과 수량에서 %나 주 같은 글자 다 부수고 순수 숫자만 추출!
+        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce').fillna(0)
         if df[w_col].sum() <= 2.0: df[w_col] = df[w_col] * 100
-        if q_col: df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+        
+        if q_col:
+            df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce').fillna(0)
         return df, n_col, w_col, q_col
     raise ValueError("필수 컬럼 부족")
 
@@ -118,7 +126,6 @@ for etf_name, files_info in etf_groups.items():
         target_files = [f for f in files_info if f['date'] > last_gs_date]
         if not target_files: continue
 
-        # 과거 엑셀 파일을 열어서 어제 수량(prev_qty)을 정확히 가져옵니다.
         prev_qty = {}
         past_files = [f for f in files_info if f['date'] <= last_gs_date]
         if past_files:
@@ -128,7 +135,8 @@ for etf_name, files_info in etf_groups.items():
                 if p_q_col:
                     past_data = p_df.set_index(p_n_col).to_dict('index')
                     for st_name, row_data in past_data.items():
-                        prev_qty[st_name] = row_data[p_q_col]
+                        clean_st = st_name.replace(' ', '').strip()
+                        prev_qty[clean_st] = row_data[p_q_col]
             except: pass
 
         for info in target_files:
@@ -138,25 +146,27 @@ for etf_name, files_info in etf_groups.items():
             today_data = r_df.set_index(r_n_col).to_dict('index')
             
             for st in today_top20[r_n_col]:
-                if st not in historical_cols: historical_cols.append(st)
+                clean_st = st.replace(' ', '').strip()
+                # 💡 구글 시트에 없는 종목만 새로 추가
+                if not any(clean_st == existing_st.replace(' ', '').strip() for existing_st in historical_cols):
+                    historical_cols.append(clean_st)
             
             row_dict = {'Date': info['date']}
             for st in historical_cols:
+                clean_st = st.replace(' ', '').strip()
                 w, q = 0, 0
-                if st in today_data:
-                    w = today_data[st][r_w_col]
-                    q = today_data[st][r_q_col] if r_q_col else 0
+                if clean_st in today_data:
+                    w = today_data[clean_st][r_w_col]
+                    q = today_data[clean_st][r_q_col] if r_q_col else 0
                 
                 price_str = ""
-                clean_st = st.replace(' ', '').strip()
                 if clean_st in krx_dict:
                     price = krx_dict[clean_st]['Close']
                     ratio = krx_dict[clean_st]['Ratio']
                     price_str = f" | ₩{int(price):,} ({ratio:+.2f}%)"
                 
-                diff = q - prev_qty.get(st, 0)
+                diff = q - prev_qty.get(clean_st, 0)
                 
-                # 어떠한 임의의 숫자도 추가하지 않고 순정 포맷 유지
                 if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
                 elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
                 else: diff_str = f"0{price_str}"
@@ -164,7 +174,7 @@ for etf_name, files_info in etf_groups.items():
                 row_dict[st] = w
                 row_dict[f"{st}_증감"] = diff_str
                 
-                if q > 0: prev_qty[st] = q
+                if q > 0: prev_qty[clean_st] = q
             
             new_row_df = pd.DataFrame([row_dict])
             existing_df = pd.concat([existing_df, new_row_df], ignore_index=True)
