@@ -82,9 +82,12 @@ for f in all_files:
     if len(raw_date) == 8: file_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
     else: file_date = raw_date
         
+    # =====================================================================
+    # 💡 [핵심 패치] 주말(토, 일) 파일은 무조건 쓰레기통으로 던집니다!
+    # =====================================================================
     try:
         dt_obj = datetime.strptime(file_date, "%Y-%m-%d")
-        if dt_obj.weekday() >= 5:
+        if dt_obj.weekday() >= 5:  # 5는 토요일, 6은 일요일
             print(f"🚫 주말 데이터 차단됨 (건너뜀): {fname}")
             continue
     except:
@@ -104,33 +107,26 @@ def read_etf_data(filepath):
         
     header_idx = 0
     for i, row in df.iterrows():
-        # 💡 컬럼을 찾을 때 모든 공백과 줄바꿈 무시
-        row_strs = [str(x).replace(' ', '').replace('\n', '') for x in row.values]
+        row_strs = [str(x).replace(' ', '') for x in row.values]
         if any('종목' in s or '자산' in s for s in row_strs) and any('비중' in s for s in row_strs):
             header_idx = i
             break
             
     df.columns = df.iloc[header_idx]
     df = df.iloc[header_idx+1:].reset_index(drop=True)
+    df.columns = [str(c).strip() for c in df.columns]
     
-    # 💡 [핵심 패치 1] TIME 컬럼명의 공백/줄바꿈 완벽 제거
-    df.columns = [str(c).replace(' ', '').replace('\n', '').strip() for c in df.columns]
-    
-    n_col = next((c for c in df.columns if '종목' in c or '자산' in c), None)
+    n_col = next((c for c in df.columns if '종목명' in c or '자산명' in c), None)
     w_col = next((c for c in df.columns if '비중' in c), None)
     q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수'])), None)
     
     if n_col and w_col:
-        # 💡 [핵심 패치 2] 숫자, 소수점, 마이너스 기호 외의 모든 문자(%, 띄어쓰기 등) 강제 파쇄
-        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce').fillna(0)
-        
+        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
         if df[w_col].sum() <= 2.0: df[w_col] = df[w_col] * 100
-        
-        # 💡 [핵심 패치 3] 소수점 첫째 자리까지만 표시 (2 -> 1로 수정)
-        df[w_col] = df[w_col].round(1)
+        df[w_col] = df[w_col].round(2)
         
         if q_col:
-            df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce').fillna(0)
+            df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
         return df, n_col, w_col, q_col
     else:
