@@ -2,7 +2,7 @@ import os
 import time
 import glob
 import shutil
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -13,19 +13,17 @@ from webdriver_manager.chrome import ChromeDriverManager
 target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
 
-# 💡 [날짜 완벽 패치] 평일에는 무조건 '오늘' 한국 시간 날짜를 씁니다!
-KST = timezone(timedelta(hours=9))
-now = datetime.now(KST)
-
+# 💡 [날짜 지능화] 주말에 실행되면 직전 금요일 날짜를 기준으로 파일명을 만듭니다.
+now = datetime.now()
 if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
     target_date = now - timedelta(days=1)
 elif now.weekday() == 6: # 일요일(6) -> 금요일(-2)
     target_date = now - timedelta(days=2)
-else: # 월, 화, 수, 목, 금 -> 무조건 오늘!
+else:
     target_date = now
 
-date_time = target_date.strftime("%Y-%m-%d") # TIME용
-date_koact = target_date.strftime("%Y%m%d")   # KoAct용
+date_time = target_date.strftime("%Y-%m-%d") # TIME용 (2026-03-27)
+date_koact = target_date.strftime("%Y%m%d")   # KoAct용 (20260327)
 
 print(f"📍 작업 위치: {target_dir}")
 print(f"📅 [날짜보정] TIME 기준: {date_time} / KoAct 기준: {date_koact}\n")
