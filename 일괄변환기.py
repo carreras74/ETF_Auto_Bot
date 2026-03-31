@@ -273,3 +273,8 @@ for etf_name, files_info in etf_groups.items():
         print(f"❌ 실패 [{etf_name}]: {e}\n")
 
 print("🎉 모든 스마트 어펜드 공정이 완벽하게 완료되었습니다!")
+        
+    except Exception as e:
+        print(f"❌ 실패 [{etf_name}]: {e}\n")
+
+print("🎉 모든 스마트 어펜드 공정이 완벽하게 완료되었습니다!")
