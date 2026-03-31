@@ -19,21 +19,18 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-print("🚀 [TIGER 자동 수집기] 투명 망토 + 스마트 레이더 모드 가동!")
+print("🚀 [TIGER 자동 수집기] 종목 누락 방지 + 순정 포맷 복구 모드 가동!")
 
-# 💡 [날짜 완벽 패치] 평일에는 무조건 '오늘' 한국 시간 날짜를 씁니다!
+# 평일 기준 당일 날짜 세팅
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 
-if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
-    target_date = now - timedelta(days=1)
-elif now.weekday() == 6: # 일요일(6) -> 금요일(-2)
-    target_date = now - timedelta(days=2)
-else: # 월, 화, 수, 목, 금 -> 무조건 오늘!
-    target_date = now
+if now.weekday() == 5: target_date = now - timedelta(days=1)
+elif now.weekday() == 6: target_date = now - timedelta(days=2)
+else: target_date = now
 
 formatted_date = target_date.strftime("%Y-%m-%d")
-print(f"📅 데이터 기록 기준일: {formatted_date}")
+print(f"📅 데이터 기록 기준일: {formatted_date}\n")
 
 # 1. 구글 시트 연결
 try:
@@ -74,17 +71,53 @@ chrome_options.add_experimental_option("prefs", {
 })
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-
 driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
 })
-
 wait = WebDriverWait(driver, 20)
+
+# 💡 [핵심 패치 1] 쪼개진 HTML 표를 완벽하게 하나로 합치는 파쇄기 장착!
+def read_tiger_excel(filepath):
+    try: dfs = pd.read_html(filepath, encoding='utf-8')
+    except:
+        try: dfs = pd.read_html(filepath, encoding='cp949') 
+        except: return pd.DataFrame()
+
+    all_tables = []
+    for temp_df in dfs:
+        header_idx = -1
+        if '종목명' in temp_df.columns:
+            all_tables.append(temp_df.copy())
+        else:
+            for i in range(len(temp_df)):
+                if '종목명' in str(temp_df.iloc[i].values):
+                    header_idx = i
+                    break
+            if header_idx != -1:
+                temp_df.columns = temp_df.iloc[header_idx]
+                all_tables.append(temp_df.iloc[header_idx+1:].copy())
+                
+    if not all_tables: return pd.DataFrame()
+    
+    df = pd.concat(all_tables, ignore_index=True)
+    df.columns = [str(c).strip() for c in df.columns]
+    df = df[df['종목명'] != '종목명']
+    df = df.dropna(subset=['종목명', '수량(주)', '비중(%)'])
+    df = df[~df['종목명'].astype(str).str.contains('원화예금|현금|설정|해지', na=False)]
+    
+    df['비중(%)'] = pd.to_numeric(df['비중(%)'].astype(str).str.replace(',', ''), errors='coerce')
+    df['수량(주)'] = pd.to_numeric(df['수량(주)'].astype(str).str.replace(',', ''), errors='coerce')
+    df['평가금액(원)'] = pd.to_numeric(df['평가금액(원)'].astype(str).str.replace(',', ''), errors='coerce')
+    df['주가'] = 0
+    valid_qty_idx = df['수량(주)'] > 0
+    df.loc[valid_qty_idx, '주가'] = (df.loc[valid_qty_idx, '평가금액(원)'] / df.loc[valid_qty_idx, '수량(주)']).astype(int)
+    
+    # 💡 [핵심 패치 2] 1군(TIME/KoAct)처럼 정확하게 Top 20만 추출!
+    return df.sort_values(by='비중(%)', ascending=False).head(20).reset_index(drop=True)
 
 for etf_name, room_url in tiger_rooms.items():
     print(f"\n▶️ [{etf_name}] 수집 시작...")
     driver.get(room_url)
-    
     time.sleep(3)
     
     try:
@@ -109,11 +142,7 @@ for etf_name, room_url in tiger_rooms.items():
     try:
         excel_buttons = wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_excel)))
     except:
-        print("❌ 20초를 기다렸지만 엑셀 버튼을 찾지 못했습니다. (페이지가 로봇을 차단했거나 구조가 다름)")
-        continue
-        
-    if not excel_buttons:
-        print("❌ 엑셀 버튼 없음")
+        print("❌ 20초 대기 초과 (엑셀 버튼 없음)")
         continue
         
     target_button = excel_buttons[-1]
@@ -139,58 +168,46 @@ for etf_name, room_url in tiger_rooms.items():
         
     print("✅ 다운로드 성공. 데이터 변환 중...")
     
-    try:
-        dfs = pd.read_html(new_file_path, encoding='utf-8')
-    except:
-        try:
-            dfs = pd.read_html(new_file_path, encoding='cp949') 
-        except Exception as e:
-            print(f"❌ 파일 해독 실패: {e}")
-            continue
+    # 💡 [핵심 패치 3] 원본 파일을 이름표 달아서 저장 (다음 날 수량 계산용)
+    ext = os.path.splitext(new_file_path)[1]
+    final_name = f"TIGER_{etf_name}_{formatted_date}{ext}"
+    final_path = os.path.join(target_dir, final_name)
+    if os.path.abspath(new_file_path) != os.path.abspath(final_path):
+        if os.path.exists(final_path): os.remove(final_path)
+        shutil.move(new_file_path, final_path)
+    
+    df = read_tiger_excel(final_path)
+    if df.empty: 
+        print("❌ 변환 실패")
+        continue
 
-    df = None
-    for temp_df in dfs:
-        if '종목명' in temp_df.columns or temp_df.isin(['종목명']).any().any():
-            df = temp_df.copy()
-            break
-            
-    if df is None: continue
-
-    if '종목명' not in df.columns:
-        for i in range(len(df)):
-            if '종목명' in str(df.iloc[i].values):
-                df.columns = df.iloc[i]
-                df = df.iloc[i+1:]
-                break
-
-    df = df.dropna(subset=['종목명', '수량(주)', '비중(%)'])
-    df = df[~df['종목명'].astype(str).str.contains('원화예금|현금|설정|해지', na=False)]
-    df['비중(%)'] = pd.to_numeric(df['비중(%)'].astype(str).str.replace(',', ''), errors='coerce')
-    df['수량(주)'] = pd.to_numeric(df['수량(주)'].astype(str).str.replace(',', ''), errors='coerce')
-    df['평가금액(원)'] = pd.to_numeric(df['평가금액(원)'].astype(str).str.replace(',', ''), errors='coerce')
-    df['주가'] = 0
-    valid_qty_idx = df['수량(주)'] > 0
-    df.loc[valid_qty_idx, '주가'] = (df.loc[valid_qty_idx, '평가금액(원)'] / df.loc[valid_qty_idx, '수량(주)']).astype(int)
-    df = df.sort_values(by='비중(%)', ascending=False).reset_index(drop=True)
     today_dict = {row['종목명']: {'비중': row['비중(%)'], '수량': row['수량(주)'], '주가': row['주가']} for _, row in df.iterrows()}
 
-    try:
-        ws = sh.worksheet(etf_name)
-    except gspread.exceptions.WorksheetNotFound:
-        ws = sh.add_worksheet(title=etf_name, rows="1000", cols="100")
+    # 💡 [핵심 패치 4] 어제 저장해둔 파일을 몰래 열어서 진짜 수량(Q)을 읽어옵니다!
+    prev_qty = {}
+    past_files = [f for f in glob.glob(os.path.join(target_dir, f"TIGER_{etf_name}_*.*")) if formatted_date not in f]
+    past_files.sort()
+    if past_files:
+        last_file = past_files[-1]
+        prev_df = read_tiger_excel(last_file)
+        if not prev_df.empty:
+            for _, row in prev_df.iterrows():
+                prev_qty[row['종목명']] = row['수량(주)']
+
+    try: ws = sh.worksheet(etf_name)
+    except gspread.exceptions.WorksheetNotFound: ws = sh.add_worksheet(title=etf_name, rows="1000", cols="100")
         
     raw_data = ws.get_all_values()
     existing_data = [row for row in raw_data if any(str(cell).strip() for cell in row)]
     
     if not existing_data:
         headers = ["일자"]
-        for stock in today_dict.keys():
-            headers.extend([stock, f"{stock}_증감"])
+        for stock in today_dict.keys(): headers.extend([stock, f"{stock}_증감"])
         row_data = [formatted_date]
         for stock in today_dict.keys():
             v = today_dict[stock]
-            price_str = f"₩{int(v['주가']):,}"
-            row_data.extend([v['비중'], f"0 | {price_str} | Q{int(v['수량'])}"])
+            price_str = f" | ₩{int(v['주가']):,}"
+            row_data.extend([v['비중'], f"0{price_str}"]) # 꼬리표 없는 순정
         ws.update(range_name='A1', values=[headers, row_data])
         print("✅ 첫 데이터 업로드 완료")
         continue
@@ -204,41 +221,22 @@ for etf_name, room_url in tiger_rooms.items():
         
     new_stocks = [s for s in today_dict.keys() if s not in headers]
     if new_stocks:
-        for ns in new_stocks:
-            headers.extend([ns, f"{ns}_증감"])
+        for ns in new_stocks: headers.extend([ns, f"{ns}_증감"])
         ws.update(range_name='A1', values=[headers])
-
-    yesterday_qty = {}
-    for i in range(1, len(headers), 2):
-        stock_name = headers[i]
-        if stock_name in today_dict:
-            change_str = last_row[i+1] if i+1 < len(last_row) else ""
-            if " | Q" in change_str:
-                try:
-                    yesterday_qty[stock_name] = int(change_str.split(" | Q")[1].replace(',', ''))
-                except:
-                    yesterday_qty[stock_name] = None
-            else:
-                yesterday_qty[stock_name] = None 
-        else:
-            yesterday_qty[stock_name] = 0
 
     new_row = [formatted_date] + [""] * (len(headers) - 1)
     for stock_name, current_data in today_dict.items():
         idx = headers.index(stock_name)
         curr_qty = current_data['수량']
+        p_qty = prev_qty.get(stock_name, 0)
         
-        prev_qty = yesterday_qty.get(stock_name)
-        if prev_qty is None:
-            diff = 0 
-        else:
-            diff = curr_qty - prev_qty
-            
-        price_str = f"₩{int(current_data['주가']):,}"
+        diff = curr_qty - p_qty
+        price_str = f" | ₩{int(current_data['주가']):,}"
         
-        if diff > 0: diff_str = f"🔴▲{diff:,} | {price_str} | Q{int(curr_qty)}"
-        elif diff < 0: diff_str = f"🔵▼{abs(diff):,} | {price_str} | Q{int(curr_qty)}"
-        else: diff_str = f"0 | {price_str} | Q{int(curr_qty)}"
+        # 💡 [핵심 패치 5] 선생님이 원하시던 완벽한 순정 포맷!
+        if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
+        elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
+        else: diff_str = f"0{price_str}"
         
         new_row[idx] = current_data['비중']
         new_row[idx+1] = diff_str
@@ -247,5 +245,14 @@ for etf_name, room_url in tiger_rooms.items():
     print(f"✅ 구글 시트 {formatted_date} 데이터 업데이트 완료")
 
 driver.quit()
+
+# 찌꺼기 파일 청소 (TIGER 원본 파일은 다음날 계산을 위해 남겨둡니다)
+print("\n🧹 찌꺼기 파일 청소 중...")
+for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(target_dir, "*.xls")):
+    fname = os.path.basename(f)
+    if "매입장부" not in fname and "TIME" not in fname and "KoAct" not in fname and "TIGER" not in fname:
+        try: os.remove(f)
+        except: pass
+
 print("\n✨ 모든 작업 완료!")
 
