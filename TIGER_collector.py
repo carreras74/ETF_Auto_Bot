@@ -19,23 +19,18 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-print("🚀 [TIGER 자동 수집기] T-1일 날짜 매칭 + 불도저 재시도 + 순정 포맷 가동!")
+print("🚀 [TIGER 자동 수집기] 안티봇 우회 + 강제 클릭 모드 가동!")
 
-# 💡 [날짜 패치] TIGER는 무조건 하루 전(T-1) 영업일 데이터를 가져오도록 세팅!
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 
-if now.weekday() == 0: # 월요일 아침 -> 금요일(-3)
-    target_date = now - timedelta(days=3)
-elif now.weekday() == 6: # 일요일 -> 금요일(-2)
-    target_date = now - timedelta(days=2)
-else: # 화, 수, 목, 금, 토 아침 -> 하루 전(-1)
-    target_date = now - timedelta(days=1)
+if now.weekday() == 0: target_date = now - timedelta(days=3)
+elif now.weekday() == 6: target_date = now - timedelta(days=2)
+else: target_date = now - timedelta(days=1)
 
 formatted_date = target_date.strftime("%Y-%m-%d")
 print(f"📅 데이터 기록 기준일: {formatted_date}\n")
 
-# 1. 구글 시트 연결
 try:
     google_key_json = os.environ.get('GOOGLE_KEY')
     creds_dict = json.loads(google_key_json)
@@ -63,7 +58,6 @@ chrome_options.add_argument('--headless=new')
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--disable-gpu') 
-chrome_options.add_argument('--disable-software-rasterizer') 
 chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 chrome_options.add_argument("--disable-blink-features=AutomationControlled") 
@@ -77,7 +71,8 @@ driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), opti
 driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
 })
-wait = WebDriverWait(driver, 20)
+# 💡 [핵심 패치 1] 버튼을 찾는 최대 대기 시간을 35초로 대폭 늘렸습니다.
+wait = WebDriverWait(driver, 35)
 
 def read_tiger_excel(filepath):
     try: dfs = pd.read_html(filepath, encoding='utf-8')
@@ -124,7 +119,8 @@ for etf_name, room_url in tiger_rooms.items():
     
     for attempt in range(2):
         driver.get(room_url)
-        time.sleep(5) 
+        # 💡 [핵심 패치 2] 로봇 검사 화면이 지나가도록 진득하게 8초를 기다립니다.
+        time.sleep(8) 
         
         try:
             driver.execute_script("""
@@ -153,18 +149,23 @@ for etf_name, room_url in tiger_rooms.items():
                 break 
         except:
             if attempt == 0:
-                print("   ⚠️ 사이트 로딩 지연. 새로고침 후 재시도합니다...")
+                print("   ⚠️ 보안 시스템 감지 또는 로딩 지연. 새로고침(F5) 후 재돌파합니다...")
             else:
-                print("❌ 20초 대기 초과 (엑셀 버튼 없음)")
+                print("❌ 35초 대기 초과. (서버가 봇을 차단했습니다)")
                 
     if not target_button:
         continue 
         
     driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
-    time.sleep(1.5)
+    time.sleep(2)
     
     before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-    driver.execute_script("arguments[0].click();", target_button)
+    
+    # 💡 [핵심 패치 3] 클릭이 씹히는 현상을 막기 위해 더블 클릭(일반 클릭 + 강제 스크립트 클릭) 시전
+    try:
+        target_button.click()
+    except:
+        driver.execute_script("arguments[0].click();", target_button)
     
     new_file_path = None
     for _ in range(20):
@@ -177,7 +178,7 @@ for etf_name, room_url in tiger_rooms.items():
             break
             
     if not new_file_path:
-        print("❌ 다운로드 실패")
+        print("❌ 다운로드 실패 (클릭은 했으나 파일이 안 내려옴)")
         continue
         
     print("✅ 다운로드 성공. 데이터 변환 중...")
@@ -219,7 +220,7 @@ for etf_name, room_url in tiger_rooms.items():
         for stock in today_dict.keys():
             v = today_dict[stock]
             price_str = f" | ₩{int(v['주가']):,}"
-            row_data.extend([v['비중'], f"0{price_str}"]) 
+            row_data.extend([v['비중'], f"0{price_str}"])
         ws.update(range_name='A1', values=[headers, row_data])
         print("✅ 첫 데이터 업로드 완료")
         continue
