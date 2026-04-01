@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import time
-from datetime import datetime  # 💡 [핵심 패치] 달력 계산기 부품 장착!
+from datetime import datetime
 
 def install_package(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -82,9 +82,6 @@ for f in all_files:
     if len(raw_date) == 8: file_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
     else: file_date = raw_date
         
-    # =====================================================================
-    # 💡 [핵심 패치] 주말(토, 일) 파일은 무조건 쓰레기통으로 던집니다!
-    # =====================================================================
     try:
         dt_obj = datetime.strptime(file_date, "%Y-%m-%d")
         if dt_obj.weekday() >= 5:  # 5는 토요일, 6은 일요일
@@ -114,19 +111,25 @@ def read_etf_data(filepath):
             
     df.columns = df.iloc[header_idx]
     df = df.iloc[header_idx+1:].reset_index(drop=True)
-    df.columns = [str(c).strip() for c in df.columns]
+    
+    # 💡 [보완 패치] 컬럼명의 공백/줄바꿈 완벽 제거
+    df.columns = [str(c).replace(' ', '').replace('\n', '').strip() for c in df.columns]
     
     n_col = next((c for c in df.columns if '종목명' in c or '자산명' in c), None)
     w_col = next((c for c in df.columns if '비중' in c), None)
     q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수'])), None)
     
     if n_col and w_col:
-        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+        # 💡 [보완 패치] 숫자, 소수점, 마이너스 기호 외의 모든 문자 강제 파쇄
+        df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce').fillna(0)
+        
         if df[w_col].sum() <= 2.0: df[w_col] = df[w_col] * 100
-        df[w_col] = df[w_col].round(2)
+        
+        # 💡 [보완 패치] 소수점 첫째 자리까지만 표시
+        df[w_col] = df[w_col].round(1)
         
         if q_col:
-            df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce').fillna(0)
             
         return df, n_col, w_col, q_col
     else:
@@ -164,6 +167,20 @@ for etf_name, files_info in etf_groups.items():
 
         print(f"   => 🔄 새로운 날짜 {len(target_files)}일치 데이터를 추가합니다.")
         
+        # 💡 [핵심 복구 1] 어제 저장해 둔 엑셀을 살짝 열어서 수량(prev_qty)을 기억해 둡니다.
+        prev_qty = {}
+        if not existing_df.empty:
+            past_files = [f for f in files_info if f['date'] <= last_gs_date]
+            if past_files:
+                last_past_file = past_files[-1]
+                try:
+                    p_df, p_n_col, _, p_q_col = read_etf_data(last_past_file['file'])
+                    if p_q_col:
+                        past_data = p_df.set_index(p_n_col).to_dict('index')
+                        for st_name, row_data in past_data.items():
+                            prev_qty[st_name] = row_data[p_q_col]
+                except: pass
+        
         new_dates = [f['date'] for f in target_files if f['date'] > last_gs_date]
         all_stocks_in_new_files = set()
         for info in target_files:
@@ -186,7 +203,6 @@ for etf_name, files_info in etf_groups.items():
 
         all_rows = []
         historical_new_cols = list(historical_cols) 
-        prev_qty = {} 
         
         for i, info in enumerate(target_files):
             is_last_day = (i == len(target_files) - 1)
@@ -219,15 +235,15 @@ for etf_name, files_info in etf_groups.items():
                         p = global_stock_hist_cache[st_name][fdate]['Close']
                         r = global_stock_hist_cache[st_name][fdate]['Change'] * 100
                         price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
-                    elif is_last_day and krx_dict and st_name in krx_dict:
+                    # 💡 [핵심 복구 2] 캐시에 없어도 최신 종가(krx_dict)를 무조건 끌어와서 빈칸 방지
+                    elif st_name in krx_dict:
                         p = krx_dict[st_name]['Close']
                         r = krx_dict[st_name]['ChagesRatio']
                         price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
                         
+                # 💡 [핵심 복구 3] 빈칸으로 덮어씌우는 오류를 삭제하고 수량 차이(diff) 완벽 반영
                 if i == 0 and existing_df.empty:
-                    diff_str = f"-{price_str}" 
-                elif i == 0 and not existing_df.empty:
-                    diff_str = ""
+                    diff_str = f"0{price_str}" 
                 else:
                     diff = q - prev_qty.get(st_name, 0)
                     if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
