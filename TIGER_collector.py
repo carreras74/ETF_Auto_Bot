@@ -9,11 +9,9 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
-# 내 컴퓨터에서 실행한 폴더에 엑셀 파일이 다운로드 됩니다.
 target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
 
-# 💡 [날짜 패치] 깃허브 서버에서도 안전하게 한국 시간(KST) 기준으로 날짜를 찍습니다.
 KST = timezone(timedelta(hours=9))
 date_koact = datetime.now(KST).strftime("%Y%m%d")  
 
@@ -28,13 +26,14 @@ tiger_rooms = {
 }
 
 chrome_options = Options()
-# 💡 [핵심 패치] 깃허브 리눅스 서버에서 크롬이 튕기지 않도록 하는 필수 서버 전용 옵션 4줄 추가!
+# 💡 [핵심 패치 1] 서버 전용 헤드리스 옵션 추가 (이게 없으면 튕깁니다!)
 chrome_options.add_argument('--headless=new')
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--disable-gpu')
 
-chrome_options.add_argument('--window-size=1920x1080')
+# 💡 [핵심 패치 2] 창 크기는 반드시 쉼표(,)를 써야 서버가 모바일로 오해하지 않습니다!
+chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
 chrome_options.add_experimental_option("prefs", {
@@ -53,20 +52,27 @@ try:
         print(f"🏢 [TIGER] {etf_name} 사이트 진입 중...")
         driver.get(room_url)
         
+        # 💡 [핵심 패치 3] 화면이 다 뜨기도 전에 엑셀을 찾는 걸 방지하기 위해 5초 대기
+        time.sleep(5)
+        
+        # 💡 [핵심 패치 4] 혹시 화면을 덮은 팝업창이 있다면 다 찢어버립니다.
+        try:
+            driver.execute_script("""
+                document.querySelectorAll('[class*="popup"], [class*="layer"], [class*="modal"], [id*="popup"]').forEach(e => e.remove());
+            """)
+        except: pass
+        
         before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
         found_and_clicked = False
         
-        # 1. 스크롤을 천천히 내리면서 표를 로딩시킵니다.
         for step in range(1, 11):
             driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
             time.sleep(1)
         
-        time.sleep(2)
+        time.sleep(3) # 데이터가 불러와질 여유 시간 추가
         
-        # 2. '엑셀다운로드' 버튼을 찾아 클릭합니다.
         for _ in range(15): 
             clicked = driver.execute_script("""
-                // 대표님이 말씀하신 '자산구성' 구역의 엑셀 버튼을 정확히 노립니다.
                 var allDivs = Array.from(document.querySelectorAll('div, section, article'));
                 var targetSection = null;
                 for (var i = 0; i < allDivs.length; i++) {
@@ -90,7 +96,6 @@ try:
                     }
                 }
                 
-                // 혹시 못 찾으면 화면 전체에서 3번째 혹은 마지막 엑셀 버튼 타격!
                 var fallbackBtns = Array.from(document.querySelectorAll('a, button, span')).filter(function(el) {
                     var txt = el.innerText || el.textContent || "";
                     return txt.replace(/\\s+/g, '').includes('엑셀다운로드');
@@ -116,7 +121,7 @@ try:
             
         if found_and_clicked:
             new_file_path = None
-            for _ in range(10):
+            for _ in range(15): # 다운로드 대기 시간도 조금 늘렸습니다
                 time.sleep(1)
                 after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
                 new_files = after_files - before_files
@@ -144,5 +149,5 @@ try:
 finally:
     time.sleep(3)
     driver.quit()
-    print("✨ 깃허브 서버 다운로드 테스트 완료!")
+    print("✨ 깃허브 서버 다운로드 완료!")
 
