@@ -2,7 +2,7 @@ import os
 import time
 import glob
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -13,10 +13,12 @@ from webdriver_manager.chrome import ChromeDriverManager
 target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
 
-date_koact = datetime.now().strftime("%Y%m%d")  
+# 💡 [날짜 패치] 깃허브 서버에서도 안전하게 한국 시간(KST) 기준으로 날짜를 찍습니다.
+KST = timezone(timedelta(hours=9))
+date_koact = datetime.now(KST).strftime("%Y%m%d")  
 
-print(f"📍 내 컴퓨터 작업 위치: {target_dir}")
-print(f"🚀 [로컬 테스트] TIGER 4종목 엑셀 다운로드 훈련 시작!\n")
+print(f"📍 서버 작업 위치: {target_dir}")
+print(f"🚀 [깃허브 서버 적용 완료] TIGER 4종목 엑셀 다운로드 시작!\n")
 
 tiger_rooms = {
     "코리아테크액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007",
@@ -25,8 +27,13 @@ tiger_rooms = {
     "기술이전바이오액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70168K0008"
 }
 
-# 💡 내 컴퓨터에서는 크롬 창이 직접 뜨도록 '--headless' 등의 옵션을 제외했습니다.
 chrome_options = Options()
+# 💡 [핵심 패치] 깃허브 리눅스 서버에서 크롬이 튕기지 않도록 하는 필수 서버 전용 옵션 4줄 추가!
+chrome_options.add_argument('--headless=new')
+chrome_options.add_argument('--no-sandbox')
+chrome_options.add_argument('--disable-dev-shm-usage')
+chrome_options.add_argument('--disable-gpu')
+
 chrome_options.add_argument('--window-size=1920x1080')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
@@ -49,7 +56,7 @@ try:
         before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
         found_and_clicked = False
         
-        # 1. 스크롤을 천천히 내리면서 표를 로딩시킵니다. (눈으로 확인해 보세요!)
+        # 1. 스크롤을 천천히 내리면서 표를 로딩시킵니다.
         for step in range(1, 11):
             driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
             time.sleep(1)
@@ -137,5 +144,5 @@ try:
 finally:
     time.sleep(3)
     driver.quit()
-    print("✨ 내 컴퓨터 테스트 완료! 바탕화면에 엑셀이 받아졌는지 확인해 보세요!")
+    print("✨ 깃허브 서버 다운로드 테스트 완료!")
 
