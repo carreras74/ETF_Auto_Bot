@@ -28,7 +28,7 @@ try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [스마트 어펜드 + 종가 무적 방어 모터] 실행 중...\n")
+print("🚀 [스마트 어펜드 + 첫줄 절대 매칭 모터] 주말 차단 모드 실행 중...\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
@@ -43,13 +43,35 @@ except Exception as e:
     google_connected = False
 print("=========================================\n")
 
+# 💡 [핵심 패치 1] 깃허브 서버의 기억 상실을 막기 위해 '수량백업(봇전용)' 탭을 활용합니다.
+global_qty_backup = {}
+backup_ws = None
+if google_connected:
+    try:
+        backup_ws = sh.worksheet("수량백업(봇전용)")
+        data = backup_ws.get_all_values()
+        if len(data) > 1:
+            for row in data[1:]:
+                if len(row) >= 3:
+                    etf, stock, qty = row[0], row[1], row[2]
+                    if etf not in global_qty_backup:
+                        global_qty_backup[etf] = {}
+                    try: global_qty_backup[etf][stock] = int(qty)
+                    except: pass
+    except:
+        try:
+            backup_ws = sh.add_worksheet(title="수량백업(봇전용)", rows="1000", cols="5")
+            backup_ws.update(values=[["ETF", "종목명", "수량"]], range_name="A1")
+        except: pass
+
 print("📈 한국거래소(KRX) 전체 종목코드 매핑 중...")
 try:
     krx_df = fdr.StockListing('KRX')
     krx_dict = {}
     name_to_code = {} 
     for _, row in krx_df.iterrows():
-        name = str(row['Name']).strip()
+        # 💡 [핵심 패치 2] 가격 매칭률 100%를 위해 종목명의 모든 공백을 제거하고 저장
+        name = str(row['Name']).replace(' ', '').strip()
         krx_dict[name] = {
             'Close': row['Close'],
             'ChagesRatio': row['ChagesRatio']
@@ -84,7 +106,7 @@ for f in all_files:
         
     try:
         dt_obj = datetime.strptime(file_date, "%Y-%m-%d")
-        if dt_obj.weekday() >= 5: 
+        if dt_obj.weekday() >= 5:  
             print(f"🚫 주말 데이터 차단됨 (건너뜀): {fname}")
             continue
     except:
@@ -161,7 +183,9 @@ for etf_name, files_info in etf_groups.items():
 
         print(f"   => 🔄 새로운 날짜 {len(target_files)}일치 데이터를 추가합니다.")
         
-        prev_qty = {}
+        # 💡 [핵심 패치 3] 어제 수량을 파일 대신 '봇 전용 메모장'에서 불러옵니다.
+        prev_qty = global_qty_backup.get(etf_name, {})
+        
         if not existing_df.empty:
             past_files = [f for f in files_info if f['date'] <= last_gs_date]
             if past_files:
@@ -185,7 +209,7 @@ for etf_name, files_info in etf_groups.items():
         
         global_stock_hist_cache = {}
         for st_name in all_stocks_in_new_files:
-            code = name_to_code.get(st_name)
+            code = name_to_code.get(st_name.replace(' ', '').strip())
             if code and new_dates:
                 try:
                     temp_df = fdr.DataReader(code, min(new_dates))
@@ -222,17 +246,17 @@ for etf_name, files_info in etf_groups.items():
                 else:
                     w = 0; q = 0
                     
-                # 💡 [핵심 패치] '-' 기호로 인한 에러를 완벽 방어하는 안전 장치
                 p_val, r_val = 0, 0.0
+                clean_st = st_name.replace(' ', '').strip() # 공백 제거 후 가격 검색
+                
                 if fdate > last_gs_date:
                     if st_name in global_stock_hist_cache and fdate in global_stock_hist_cache[st_name]:
                         p_val = global_stock_hist_cache[st_name][fdate]['Close']
                         r_val = global_stock_hist_cache[st_name][fdate]['Change'] * 100
-                    elif st_name in krx_dict:
-                        p_val = krx_dict[st_name]['Close']
-                        r_val = krx_dict[st_name]['ChagesRatio']
+                    elif clean_st in krx_dict:
+                        p_val = krx_dict[clean_st]['Close']
+                        r_val = krx_dict[clean_st]['ChagesRatio']
                 
-                # 안전하게 숫자로 변환 (실패시 0)
                 try: p_int = int(float(str(p_val).replace(',', '')))
                 except: p_int = 0
                 
@@ -256,8 +280,10 @@ for etf_name, files_info in etf_groups.items():
                 row_dict[f"{st_name}_증감"] = diff_str
                 
             if r_q_col:
+                if etf_name not in global_qty_backup:
+                    global_qty_backup[etf_name] = {}
                 for st_name, row_data in today_data.items():
-                    prev_qty[st_name] = row_data[r_q_col]
+                    global_qty_backup[etf_name][st_name] = row_data[r_q_col]
             
             if fdate > last_gs_date or existing_df.empty:
                 all_rows.append(row_dict)
@@ -294,5 +320,19 @@ for etf_name, files_info in etf_groups.items():
         
     except Exception as e:
         print(f"❌ 실패 [{etf_name}]: {e}\n")
+
+# 💡 [핵심 패치 4] 작업이 끝나면 봇이 수량 백업 탭에 오늘 수량을 덮어쓰고 퇴근합니다.
+if google_connected and backup_ws:
+    print("\n💾 봇 전용 수량 백업 시트를 업데이트합니다...")
+    try:
+        backup_rows = [["ETF", "종목명", "수량"]]
+        for etf, stocks in global_qty_backup.items():
+            for st, q in stocks.items():
+                backup_rows.append([etf, st, q])
+        backup_ws.clear()
+        backup_ws.update(values=backup_rows, range_name="A1")
+        print("✅ 수량 백업 완료!")
+    except Exception as e:
+        print(f"⚠️ 수량 백업 실패: {e}")
 
 print("🎉 모든 스마트 어펜드 공정이 완벽하게 완료되었습니다!")
