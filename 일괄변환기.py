@@ -28,7 +28,7 @@ try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [스마트 어펜드 + 첫줄 절대 매칭 모터] 주말 차단 모드 실행 중...\n")
+print("🚀 [스마트 어펜드 + 종가 무적 방어 모터] 실행 중...\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
@@ -84,7 +84,7 @@ for f in all_files:
         
     try:
         dt_obj = datetime.strptime(file_date, "%Y-%m-%d")
-        if dt_obj.weekday() >= 5:  # 5는 토요일, 6은 일요일
+        if dt_obj.weekday() >= 5: 
             print(f"🚫 주말 데이터 차단됨 (건너뜀): {fname}")
             continue
     except:
@@ -111,8 +111,6 @@ def read_etf_data(filepath):
             
     df.columns = df.iloc[header_idx]
     df = df.iloc[header_idx+1:].reset_index(drop=True)
-    
-    # 💡 [보완 패치] 컬럼명의 공백/줄바꿈 완벽 제거
     df.columns = [str(c).replace(' ', '').replace('\n', '').strip() for c in df.columns]
     
     n_col = next((c for c in df.columns if '종목명' in c or '자산명' in c), None)
@@ -120,12 +118,8 @@ def read_etf_data(filepath):
     q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수'])), None)
     
     if n_col and w_col:
-        # 💡 [보완 패치] 숫자, 소수점, 마이너스 기호 외의 모든 문자 강제 파쇄
         df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce').fillna(0)
-        
         if df[w_col].sum() <= 2.0: df[w_col] = df[w_col] * 100
-        
-        # 💡 [보완 패치] 소수점 첫째 자리까지만 표시
         df[w_col] = df[w_col].round(1)
         
         if q_col:
@@ -167,7 +161,6 @@ for etf_name, files_info in etf_groups.items():
 
         print(f"   => 🔄 새로운 날짜 {len(target_files)}일치 데이터를 추가합니다.")
         
-        # 💡 [핵심 복구 1] 어제 저장해 둔 엑셀을 살짝 열어서 수량(prev_qty)을 기억해 둡니다.
         prev_qty = {}
         if not existing_df.empty:
             past_files = [f for f in files_info if f['date'] <= last_gs_date]
@@ -229,25 +222,34 @@ for etf_name, files_info in etf_groups.items():
                 else:
                     w = 0; q = 0
                     
-                price_str = ""
+                # 💡 [핵심 패치] '-' 기호로 인한 에러를 완벽 방어하는 안전 장치
+                p_val, r_val = 0, 0.0
                 if fdate > last_gs_date:
                     if st_name in global_stock_hist_cache and fdate in global_stock_hist_cache[st_name]:
-                        p = global_stock_hist_cache[st_name][fdate]['Close']
-                        r = global_stock_hist_cache[st_name][fdate]['Change'] * 100
-                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
-                    # 💡 [핵심 복구 2] 캐시에 없어도 최신 종가(krx_dict)를 무조건 끌어와서 빈칸 방지
+                        p_val = global_stock_hist_cache[st_name][fdate]['Close']
+                        r_val = global_stock_hist_cache[st_name][fdate]['Change'] * 100
                     elif st_name in krx_dict:
-                        p = krx_dict[st_name]['Close']
-                        r = krx_dict[st_name]['ChagesRatio']
-                        price_str = f" | ₩{int(p):,} ({r:+.2f}%)"
-                        
-                # 💡 [핵심 복구 3] 빈칸으로 덮어씌우는 오류를 삭제하고 수량 차이(diff) 완벽 반영
+                        p_val = krx_dict[st_name]['Close']
+                        r_val = krx_dict[st_name]['ChagesRatio']
+                
+                # 안전하게 숫자로 변환 (실패시 0)
+                try: p_int = int(float(str(p_val).replace(',', '')))
+                except: p_int = 0
+                
+                try: r_float = float(str(r_val).replace(',', '').replace('%', ''))
+                except: r_float = 0.0
+                
+                price_str = f" | ₩{p_int:,} ({r_float:+.2f}%)" if p_int > 0 else ""
+                
+                diff = q - prev_qty.get(st_name, 0)
+                try: diff_int = int(float(str(diff).replace(',', '')))
+                except: diff_int = 0
+
                 if i == 0 and existing_df.empty:
                     diff_str = f"0{price_str}" 
                 else:
-                    diff = q - prev_qty.get(st_name, 0)
-                    if diff > 0: diff_str = f"🔴▲ {int(diff):,}{price_str}"
-                    elif diff < 0: diff_str = f"🔵▼ {abs(int(diff)):,}{price_str}"
+                    if diff_int > 0: diff_str = f"🔴▲ {diff_int:,}{price_str}"
+                    elif diff_int < 0: diff_str = f"🔵▼ {abs(diff_int):,}{price_str}"
                     else: diff_str = f"0{price_str}"
                 
                 row_dict[st_name] = w
