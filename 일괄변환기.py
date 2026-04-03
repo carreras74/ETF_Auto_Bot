@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 def install_package(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -27,8 +27,12 @@ import re
 try: current_folder = os.path.dirname(os.path.abspath(__file__))
 except: current_folder = os.getcwd()
 
+KST = timezone(timedelta(hours=9))
+now_kst = datetime.now(KST)
+
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [스마트 어펜드 + 첫줄 절대 매칭 모터] 주말 차단 모드 실행 중...\n")
+print("🚀 [스마트 어펜드 + 1% 컷오프 + TIGER 통합 모터] 실행 중...\n")
+print(f"🇰🇷 한국 표준 시간: {now_kst.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
@@ -43,7 +47,6 @@ except Exception as e:
     google_connected = False
 print("=========================================\n")
 
-# 💡 [핵심 패치 1] 깃허브 서버의 기억 상실을 막기 위해 '수량백업(봇전용)' 탭을 활용합니다.
 global_qty_backup = {}
 backup_ws = None
 if google_connected:
@@ -70,7 +73,6 @@ try:
     krx_dict = {}
     name_to_code = {} 
     for _, row in krx_df.iterrows():
-        # 💡 [핵심 패치 2] 가격 매칭률 100%를 위해 종목명의 모든 공백을 제거하고 저장
         name = str(row['Name']).replace(' ', '').strip()
         krx_dict[name] = {
             'Close': row['Close'],
@@ -83,9 +85,10 @@ except Exception as e:
     krx_dict = {}
     name_to_code = {}
 
+# 💡 [핵심 통합] TIGER 파일도 함께 읽어오도록 지시합니다.
 all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
              if f.endswith(('.csv', '.xlsx', '.xls')) 
-             and ("TIME" in f or "KoAct" in f) 
+             and ("TIME" in f or "KoAct" in f or "TIGER" in f) 
              and "30일추적" not in f 
              and "변환완료" not in f
              and "통합완료" not in f]
@@ -109,8 +112,7 @@ for f in all_files:
         if dt_obj.weekday() >= 5:  
             print(f"🚫 주말 데이터 차단됨 (건너뜀): {fname}")
             continue
-    except:
-        pass
+    except: pass
         
     etf_name = re.sub(r'구성종목|PDF|기준\s*가격|\d{4}-\d{2}-\d{2}|\d{8}|\.xlsx|\.csv|\.xls|[()_\-\s]', '', fname).strip()
     
@@ -122,8 +124,19 @@ def read_etf_data(filepath):
         try: df = pd.read_csv(filepath, encoding='utf-8-sig', header=None)
         except: df = pd.read_csv(filepath, encoding='cp949', header=None)
     else:
-        df = pd.read_excel(filepath, header=None)
-        
+        try: 
+            df = pd.read_excel(filepath, header=None)
+        except:
+            # 💡 [가짜 엑셀 파쇄기] 미래에셋 TIGER의 HTML형 엑셀을 부숴서 표만 가져옵니다!
+            try: dfs = pd.read_html(filepath, encoding='utf-8')
+            except: dfs = pd.read_html(filepath, encoding='cp949')
+            df = pd.DataFrame()
+            for temp in dfs:
+                row_strs = " ".join(temp.astype(str).values.flatten()).replace(' ', '')
+                if '종목' in row_strs and '비중' in row_strs:
+                    df = temp
+                    break
+                    
     header_idx = 0
     for i, row in df.iterrows():
         row_strs = [str(x).replace(' ', '') for x in row.values]
@@ -183,7 +196,6 @@ for etf_name, files_info in etf_groups.items():
 
         print(f"   => 🔄 새로운 날짜 {len(target_files)}일치 데이터를 추가합니다.")
         
-        # 💡 [핵심 패치 3] 어제 수량을 파일 대신 '봇 전용 메모장'에서 불러옵니다.
         prev_qty = global_qty_backup.get(etf_name, {})
         
         if not existing_df.empty:
@@ -203,8 +215,9 @@ for etf_name, files_info in etf_groups.items():
         for info in target_files:
             try:
                 r_df, r_n_col, r_w_col, _ = read_etf_data(info['file'])
-                top20_names = r_df.dropna(subset=[r_n_col]).sort_values(by=r_w_col, ascending=False).head(20)[r_n_col].tolist()
-                all_stocks_in_new_files.update(top20_names)
+                # 💡 1% 이상 종목만 추려냅니다
+                target_names = r_df[r_df[r_w_col] >= 1.0].dropna(subset=[r_n_col])[r_n_col].tolist()
+                all_stocks_in_new_files.update(target_names)
             except: pass
         
         global_stock_hist_cache = {}
@@ -230,9 +243,10 @@ for etf_name, files_info in etf_groups.items():
             r_df = r_df[r_df[r_n_col].astype(str).str.strip() != '']
             r_df = r_df.dropna(subset=[r_n_col])
             
-            today_top20 = r_df.sort_values(by=r_w_col, ascending=False).head(20)
+            # 💡 1% 이상인 종목들만 구글 시트에 등반시킵니다
+            today_target = r_df[r_df[r_w_col] >= 1.0].sort_values(by=r_w_col, ascending=False)
             
-            for st_name in today_top20[r_n_col]:
+            for st_name in today_target[r_n_col]:
                 if st_name not in historical_new_cols:
                     historical_new_cols.append(st_name)
                     
@@ -247,7 +261,7 @@ for etf_name, files_info in etf_groups.items():
                     w = 0; q = 0
                     
                 p_val, r_val = 0, 0.0
-                clean_st = st_name.replace(' ', '').strip() # 공백 제거 후 가격 검색
+                clean_st = st_name.replace(' ', '').strip() 
                 
                 if fdate > last_gs_date:
                     if st_name in global_stock_hist_cache and fdate in global_stock_hist_cache[st_name]:
@@ -265,15 +279,20 @@ for etf_name, files_info in etf_groups.items():
                 
                 price_str = f" | ₩{p_int:,} ({r_float:+.2f}%)" if p_int > 0 else ""
                 
-                diff = q - prev_qty.get(st_name, 0)
-                try: diff_int = int(float(str(diff).replace(',', '')))
-                except: diff_int = 0
+                try: q_int = int(float(str(q).replace(',', '')))
+                except: q_int = 0
+                
+                prev_q = prev_qty.get(st_name, 0)
+                try: prev_q_int = int(float(str(prev_q).replace(',', '')))
+                except: prev_q_int = 0
+                
+                diff = q_int - prev_q_int
 
                 if i == 0 and existing_df.empty:
                     diff_str = f"0{price_str}" 
                 else:
-                    if diff_int > 0: diff_str = f"🔴▲ {diff_int:,}{price_str}"
-                    elif diff_int < 0: diff_str = f"🔵▼ {abs(diff_int):,}{price_str}"
+                    if diff > 0: diff_str = f"🔴▲ {diff:,}{price_str}"
+                    elif diff < 0: diff_str = f"🔵▼ {abs(diff):,}{price_str}"
                     else: diff_str = f"0{price_str}"
                 
                 row_dict[st_name] = w
@@ -321,7 +340,6 @@ for etf_name, files_info in etf_groups.items():
     except Exception as e:
         print(f"❌ 실패 [{etf_name}]: {e}\n")
 
-# 💡 [핵심 패치 4] 작업이 끝나면 봇이 수량 백업 탭에 오늘 수량을 덮어쓰고 퇴근합니다.
 if google_connected and backup_ws:
     print("\n💾 봇 전용 수량 백업 시트를 업데이트합니다...")
     try:
@@ -335,4 +353,4 @@ if google_connected and backup_ws:
     except Exception as e:
         print(f"⚠️ 수량 백업 실패: {e}")
 
-print("🎉 모든 스마트 어펜드 공정이 완벽하게 완료되었습니다!")
+print("🎉 모든 엑셀 데이터가 구글 시트에 완벽하게 올라갔습니다!")
