@@ -2,10 +2,10 @@ name: ETF Auto Collector
 
 on:
   schedule:
-    # 💡 [시간 최적화 패치]
-    # 한국 시간(KST) 월~금 오전 9시 03분 동작
-    # 🌍 UTC 기준: 월~금 오전 00시 03분
-    - cron: '3 0 * * 1-5'
+    # 💡 [트래픽 지옥 회피 패치]
+    # 한국 시간(KST) 월~금 오전 8시 50분 동작
+    # 🌍 UTC 기준: 일~목 오후 11시 50분 (요일이 하루씩 당겨집니다!)
+    - cron: '50 23 * * 0-4'
   workflow_dispatch: 
 
 jobs:
