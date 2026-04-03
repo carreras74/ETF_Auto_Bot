@@ -2,9 +2,7 @@ name: ETF Auto Collector
 
 on:
   schedule:
-    # 💡 [트래픽 지옥 회피 패치]
-    # 한국 시간(KST) 월~금 오전 8시 50분 동작
-    # 🌍 UTC 기준: 일~목 오후 11시 50분 (요일이 하루씩 당겨집니다!)
+    # 💡 한국 시간(KST) 월~금 오전 8시 50분 (지옥철 트래픽 회피 시간)
     - cron: '50 23 * * 0-4'
   workflow_dispatch: 
 
@@ -34,10 +32,12 @@ jobs:
     - name: Run TIME & KoAct Collector
       run: python ETF_collector.py
 
-    - name: Run TIME & KoAct Converter 
-      run: python 일괄변환기.py
-
+    # 💡 [순서 변경] TIGER 수집기를 먼저 돌려서 엑셀을 다 모아둡니다.
     - name: Run TIGER Collector
       env:
         GOOGLE_KEY: ${{ secrets.GOOGLE_KEY }}
       run: python TIGER_collector.py
+
+    # 💡 [마지막 정리] 일괄변환기가 모인 모든 엑셀을 구글 시트에 한방에 올립니다.
+    - name: Run All ETF Converter 
+      run: python 일괄변환기.py
