@@ -9,18 +9,15 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
-# 작업 위치 세팅
 target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
 
-# 💡 한국 시간(KST) 기준으로 날짜 생성
 KST = timezone(timedelta(hours=9))
 date_koact = datetime.now(KST).strftime("%Y%m%d")  
 
 print(f"📍 서버 작업 위치: {target_dir}")
-print(f"🚀 [TIGER 3종목 집중 수집] 엑셀 다운로드 시작!\n")
+print(f"🚀 [TIGER 3종목 집중 수집] 스텔스 우회 모드 가동!\n")
 
-# 💡 'AI코리아그로스액티브'가 제외된 최종 리스트입니다.
 tiger_rooms = {
     "코리아테크액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7471780007",
     "퓨처모빌리티액티브": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7387280001",
@@ -34,7 +31,10 @@ chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--disable-gpu')
 chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+
+# 💡 [핵심 무기 1] 로봇이 아닌 '사람'인 척 완벽하게 위장하는 스텔스 옵션 
+chrome_options.add_argument("--disable-blink-features=AutomationControlled") 
+chrome_options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
 chrome_options.add_experimental_option("prefs", {
     "download.default_directory": download_dir,
     "download.prompt_for_download": False,
@@ -44,62 +44,79 @@ chrome_options.add_experimental_option("prefs", {
 })
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+
+# 💡 [핵심 무기 2] 크롬 브라우저의 '나는 봇이다'라는 꼬리표를 강제로 떼어버립니다.
+driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+    "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
+})
 driver.set_page_load_timeout(30)
 
 try:
     for etf_name, room_url in tiger_rooms.items():
         print(f"🏢 [TIGER] {etf_name} 사이트 진입 중...")
-        driver.get(room_url)
         
-        time.sleep(8)
-        
-        before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
         found_and_clicked = False
         
-        # 1. 스크롤을 바닥까지 천천히 내립니다.
-        for step in range(1, 11):
-            driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
-            time.sleep(1)
-        
-        time.sleep(3)
-        
-        # 2. 선생님의 통찰력이 담긴 "바닥에서 첫 번째 엑셀 버튼 찾기" 로직
-        for _ in range(15): 
-            clicked = driver.execute_script("""
-                var allElements = document.querySelectorAll('a, button, span, img');
-                var excelBtns = [];
-                
-                for(var i = 0; i < allElements.length; i++) {
-                    var el = allElements[i];
-                    var txt = (el.innerText || el.textContent || el.alt || "").replace(/\\s+/g, '').toUpperCase();
-                    var href = (el.href || "").toUpperCase();
-                    var className = (el.className || "").toUpperCase();
+        # 💡 [핵심 무기 3] 봇 차단으로 화면이 안 뜨면, 새로고침(F5) 후 한 번 더 뚫어버립니다!
+        for attempt in range(2):
+            driver.get(room_url)
+            time.sleep(8) # 스텔스 잠입 대기
+            
+            # 화면을 가리는 가짜 팝업창 찢기
+            try:
+                driver.execute_script("""
+                    document.querySelectorAll('[class*="popup"], [class*="layer"], [class*="modal"], [id*="popup"]').forEach(e => e.remove());
+                """)
+            except: pass
+            
+            # 스크롤 내리기
+            for step in range(1, 11):
+                driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
+                time.sleep(1)
+            
+            time.sleep(3)
+            before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
+            
+            # 선생님의 필살기: 바닥에서 첫 번째 버튼 타격!
+            for _ in range(15): 
+                clicked = driver.execute_script("""
+                    var allElements = document.querySelectorAll('a, button, span, img');
+                    var excelBtns = [];
+                    for(var i = 0; i < allElements.length; i++) {
+                        var el = allElements[i];
+                        var txt = (el.innerText || el.textContent || el.alt || "").replace(/\\s+/g, '').toUpperCase();
+                        var href = (el.href || "").toUpperCase();
+                        var className = (el.className || "").toUpperCase();
 
-                    if (txt.includes('엑셀') || txt.includes('EXCEL') || href.includes('EXCEL') || className.includes('EXCEL')) {
-                        if (el.tagName === 'A' || el.tagName === 'BUTTON') {
-                            excelBtns.push(el);
-                        } else if (el.parentElement && (el.parentElement.tagName === 'A' || el.parentElement.tagName === 'BUTTON')) {
-                            excelBtns.push(el.parentElement);
+                        if (txt.includes('엑셀') || txt.includes('EXCEL') || href.includes('EXCEL') || className.includes('EXCEL')) {
+                            if (el.tagName === 'A' || el.tagName === 'BUTTON') {
+                                excelBtns.push(el);
+                            } else if (el.parentElement && (el.parentElement.tagName === 'A' || el.parentElement.tagName === 'BUTTON')) {
+                                excelBtns.push(el.parentElement);
+                            }
                         }
                     }
-                }
-
-                if (excelBtns.length > 0) {
-                    var targetBtn = excelBtns[excelBtns.length - 1];
-                    targetBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
-                    targetBtn.click();
-                    return true;
-                }
+                    if (excelBtns.length > 0) {
+                        var targetBtn = excelBtns[excelBtns.length - 1];
+                        targetBtn.scrollIntoView({block: 'center', behavior: 'smooth'});
+                        targetBtn.click();
+                        return true;
+                    }
+                    return false;
+                """)
                 
-                return false;
-            """)
-            
-            if clicked:
-                found_and_clicked = True
+                if clicked:
+                    found_and_clicked = True
+                    break
+                time.sleep(1)
+                
+            if found_and_clicked:
                 print(f"📥 [{etf_name}] 화면 바닥의 엑셀 버튼 클릭 완료!", flush=True)
-                break
-            time.sleep(1)
-            
+                break # 성공했으니 재시도 루프 탈출!
+            else:
+                if attempt == 0:
+                    print(f"   ⚠️ 서버 지연/차단 감지! 새로고침(F5) 후 재돌파합니다...")
+
         if found_and_clicked:
             new_file_path = None
             for _ in range(15):
@@ -130,5 +147,5 @@ try:
 finally:
     time.sleep(3)
     driver.quit()
-    print("✨ 3종목 수집 및 서버 테스트 완료!")
+    print("✨ 3종목 스텔스 수집 및 서버 테스트 완료!")
 
