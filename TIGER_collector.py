@@ -32,7 +32,6 @@ chrome_options.add_argument('--disable-gpu')
 chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
-# 💡 [핵심 무기 1] 로봇이 아닌 '사람'인 척 완벽하게 위장하는 스텔스 옵션 
 chrome_options.add_argument("--disable-blink-features=AutomationControlled") 
 chrome_options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
 chrome_options.add_experimental_option("prefs", {
@@ -44,8 +43,6 @@ chrome_options.add_experimental_option("prefs", {
 })
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-
-# 💡 [핵심 무기 2] 크롬 브라우저의 '나는 봇이다'라는 꼬리표를 강제로 떼어버립니다.
 driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
 })
@@ -57,27 +54,24 @@ try:
         
         found_and_clicked = False
         
-        # 💡 [핵심 무기 3] 봇 차단으로 화면이 안 뜨면, 새로고침(F5) 후 한 번 더 뚫어버립니다!
         for attempt in range(2):
             driver.get(room_url)
-            time.sleep(8) # 스텔스 잠입 대기
+            # 💡 [지연 극복 패치] 아침 시간대 깃허브 서버 로딩 속도를 고려해 진득하게 15초를 기다립니다!
+            time.sleep(15) 
             
-            # 화면을 가리는 가짜 팝업창 찢기
             try:
                 driver.execute_script("""
                     document.querySelectorAll('[class*="popup"], [class*="layer"], [class*="modal"], [id*="popup"]').forEach(e => e.remove());
                 """)
             except: pass
             
-            # 스크롤 내리기
             for step in range(1, 11):
                 driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * ({step}/10));")
-                time.sleep(1)
+                time.sleep(1.5) # 스크롤 속도도 살짝 늦춰서 데이터가 잘 불려오게 합니다.
             
             time.sleep(3)
             before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
             
-            # 선생님의 필살기: 바닥에서 첫 번째 버튼 타격!
             for _ in range(15): 
                 clicked = driver.execute_script("""
                     var allElements = document.querySelectorAll('a, button, span, img');
@@ -112,7 +106,7 @@ try:
                 
             if found_and_clicked:
                 print(f"📥 [{etf_name}] 화면 바닥의 엑셀 버튼 클릭 완료!", flush=True)
-                break # 성공했으니 재시도 루프 탈출!
+                break 
             else:
                 if attempt == 0:
                     print(f"   ⚠️ 서버 지연/차단 감지! 새로고침(F5) 후 재돌파합니다...")
