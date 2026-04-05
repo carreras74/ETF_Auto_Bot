@@ -2,7 +2,7 @@ import os
 import time
 import glob
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -13,20 +13,22 @@ from webdriver_manager.chrome import ChromeDriverManager
 target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
 
-# 💡 [날짜 지능화] 주말에 실행되면 직전 금요일 날짜를 기준으로 파일명을 만듭니다.
-now = datetime.now()
+# 💡 [날짜 지능화 KST 패치] 깃허브(영국) 시간을 한국 시간(KST)으로 멱살 잡고 끌어옵니다!
+KST = timezone(timedelta(hours=9))
+now = datetime.now(KST)
+
 if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
     target_date = now - timedelta(days=1)
 elif now.weekday() == 6: # 일요일(6) -> 금요일(-2)
     target_date = now - timedelta(days=2)
-else:
+else: # 월~금 -> 당일
     target_date = now
 
-date_time = target_date.strftime("%Y-%m-%d") # TIME용 (2026-03-27)
-date_koact = target_date.strftime("%Y%m%d")   # KoAct용 (20260327)
+date_time = target_date.strftime("%Y-%m-%d") # TIME용 (예: 2026-04-06)
+date_koact = target_date.strftime("%Y%m%d")   # KoAct용 (예: 20260406)
 
 print(f"📍 작업 위치: {target_dir}")
-print(f"📅 [날짜보정] TIME 기준: {date_time} / KoAct 기준: {date_koact}\n")
+print(f"📅 [날짜보정 KST] TIME 기준: {date_time} / KoAct 기준: {date_koact}\n")
 
 # 2. 운용사별 룸(URL) 리스트
 time_rooms = {
