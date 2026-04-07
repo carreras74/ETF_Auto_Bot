@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import glob
 import shutil
@@ -9,28 +10,23 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
-# 1. 작업 위치 및 날짜 지능 세팅
-target_dir = os.path.dirname(os.path.abspath(__file__))
-download_dir = target_dir
-
-# 💡 [날짜 지능화 KST 패치] 깃허브(영국) 시간을 한국 시간(KST)으로 멱살 잡고 끌어옵니다!
+# 💡 [강력한 주말 차단막] 한국 시간 기준 토(5), 일(6)요일이면 수집 안 하고 바로 퇴근!
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 
-if now.weekday() == 5: # 토요일(5) -> 금요일(-1)
-    target_date = now - timedelta(days=1)
-elif now.weekday() == 6: # 일요일(6) -> 금요일(-2)
-    target_date = now - timedelta(days=2)
-else: # 월~금 -> 당일
-    target_date = now
+if now.weekday() >= 5:
+    print(f"🚫 [주말 차단] 오늘({now.strftime('%Y-%m-%d')})은 주말입니다. 수집 봇이 휴식에 들어갑니다.")
+    sys.exit()
 
-date_time = target_date.strftime("%Y-%m-%d") # TIME용 (예: 2026-04-06)
-date_koact = target_date.strftime("%Y%m%d")   # KoAct용 (예: 20260406)
+target_dir = os.path.dirname(os.path.abspath(__file__))
+download_dir = target_dir
+
+date_time = now.strftime("%Y-%m-%d") # TIME용 
+date_koact = now.strftime("%Y%m%d")   # KoAct용 
 
 print(f"📍 작업 위치: {target_dir}")
-print(f"📅 [날짜보정 KST] TIME 기준: {date_time} / KoAct 기준: {date_koact}\n")
+print(f"📅 [평일 확인 완료] TIME 기준: {date_time} / KoAct 기준: {date_koact}\n")
 
-# 2. 운용사별 룸(URL) 리스트
 time_rooms = {
     "코스닥액티브": "https://timeetf.co.kr/m11_view.php?idx=24&cate=002",
     "플러스배당액티브": "https://timeetf.co.kr/m11_view.php?idx=12&cate=002",
@@ -58,7 +54,6 @@ task_list = [
     {"brand": "KoAct", "etfs": koact_rooms}
 ]
 
-# 3. 깃허브 리눅스 서버용 방탄 크롬 옵션
 chrome_options = Options()
 chrome_options.add_argument('--headless=new') 
 chrome_options.add_argument('--no-sandbox')
@@ -118,7 +113,6 @@ try:
                     try:
                         alert = driver.switch_to.alert
                         alert.accept() 
-                        print(f"⚠️ [{brand}] {etf_name} 다운로드 스킵 (경고창 무시).")
                         continue 
                     except:
                         pass 
@@ -155,7 +149,6 @@ finally:
     time.sleep(2)
     driver.quit()
 
-# 4. 청소 작업
 safe_files = ["매입장부.xlsx"] 
 
 print("\n🧹 찌꺼기 파일 청소 중...")
@@ -167,4 +160,4 @@ for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(
             print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}")
         except: pass
 
-print("\n✨ 16개 ETF 수집 및 청소 공정 완벽 종료!")
+print("\n✨ ETF 수집 및 청소 공정 완벽 종료!")
