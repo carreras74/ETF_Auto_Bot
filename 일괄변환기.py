@@ -31,7 +31,7 @@ KST = timezone(timedelta(hours=9))
 now_kst = datetime.now(KST)
 
 print(f"📂 작업 폴더: {current_folder}")
-print("🚀 [스마트 어펜드 + 지능형 시트 매칭 모터] 실행 중...\n")
+print("🚀 [TIME & KoAct 전용 스마트 엔진] 가동 중...\n")
 
 print("=========================================")
 print("🌐 구글 시트 접속을 시도합니다...")
@@ -50,7 +50,6 @@ global_qty_backup = {}
 backup_ws = None
 if google_connected:
     try:
-        # 지능형 백업 시트 찾기
         all_ws = sh.worksheets()
         backup_ws = next((ws for ws in all_ws if ws.title.replace(' ', '') == "수량백업(봇전용)"), None)
         if backup_ws:
@@ -62,9 +61,6 @@ if google_connected:
                         if etf not in global_qty_backup: global_qty_backup[etf] = {}
                         try: global_qty_backup[etf][stock] = int(qty)
                         except: pass
-        else:
-            backup_ws = sh.add_worksheet(title="수량백업(봇전용)", rows="1000", cols="5")
-            backup_ws.update(values=[["ETF", "종목명", "수량"]], range_name="A1")
     except: pass
 
 print("📈 한국거래소(KRX) 전체 종목코드 매핑 중...")
@@ -80,13 +76,14 @@ try:
 except Exception as e:
     krx_dict = {}; name_to_code = {}
 
+# 💡 [필터링 고도화] 오직 TIME과 KoAct 파일만 수집 대상으로 한정합니다.
 all_files = [f for f in glob.glob(os.path.join(current_folder, "*.*"))
              if f.endswith(('.csv', '.xlsx', '.xls')) 
-             and ("TIME" in f or "KoAct" in f or "TIGER" in f) 
+             and ("TIME" in f or "KoAct" in f) 
              and "30일추적" not in f and "변환완료" not in f and "통합완료" not in f]
 
 if not all_files:
-    print("❌ 폴더에 원본 파일이 없습니다.")
+    print("❌ 폴더에 분석할 TIME/KoAct 파일이 없습니다.")
     exit()
 
 etf_groups = {}
@@ -96,10 +93,6 @@ for f in all_files:
     if not date_match: continue
     raw_date = date_match.group()
     file_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}" if len(raw_date) == 8 else raw_date
-    try:
-        dt_obj = datetime.strptime(file_date, "%Y-%m-%d")
-        if dt_obj.weekday() >= 5: continue
-    except: pass
     etf_name = re.sub(r'구성종목|PDF|기준\s*가격|\d{4}-\d{2}-\d{2}|\d{8}|\.xlsx|\.csv|\.xls|[()_\-\s]', '', fname).strip()
     if etf_name not in etf_groups: etf_groups[etf_name] = []
     etf_groups[etf_name].append({'file': f, 'date': file_date})
@@ -109,15 +102,8 @@ def read_etf_data(filepath):
         try: df = pd.read_csv(filepath, encoding='utf-8-sig', header=None)
         except: df = pd.read_csv(filepath, encoding='cp949', header=None)
     else:
-        try: df = pd.read_excel(filepath, header=None)
-        except:
-            try: dfs = pd.read_html(filepath, encoding='utf-8')
-            except: dfs = pd.read_html(filepath, encoding='cp949')
-            df = pd.DataFrame()
-            for temp in dfs:
-                row_strs = " ".join(temp.astype(str).values.flatten()).replace(' ', '')
-                if '종목' in row_strs and '비중' in row_strs:
-                    df = temp; break
+        df = pd.read_excel(filepath, header=None)
+    
     header_idx = 0
     for i, row in df.iterrows():
         row_strs = [str(x).replace(' ', '') for x in row.values]
@@ -129,44 +115,41 @@ def read_etf_data(filepath):
     n_col = next((c for c in df.columns if '종목명' in c or '자산명' in c), None)
     w_col = next((c for c in df.columns if '비중' in c), None)
     q_col = next((c for c in df.columns if any(k in c for k in ['수량', '주식수', '계약수'])), None)
+    
     if n_col and w_col:
         df[w_col] = pd.to_numeric(df[w_col].astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce').fillna(0)
         if df[w_col].sum() <= 2.0: df[w_col] = df[w_col] * 100
         df[w_col] = df[w_col].round(1)
         if q_col: df[q_col] = pd.to_numeric(df[q_col].astype(str).str.replace(r'[^\d.-]', '', regex=True), errors='coerce').fillna(0)
         return df, n_col, w_col, q_col
-    else: raise ValueError("컬럼을 찾을 수 없습니다.")
+    return None, None, None, None
 
 for etf_name, files_info in etf_groups.items():
-    print(f"▶️ [{etf_name}] 분석 및 업데이트 시작...")
+    print(f"▶️ [{etf_name}] 분석 시작...")
     files_info.sort(key=lambda x: x['date'])
     try:
         existing_df = pd.DataFrame(); worksheet = None
         if google_connected:
-            try:
-                # 💡 [핵심 패치] 시트 이름에 공백이 있어도 무조건 찾아내서 연결합니다!
-                all_ws = sh.worksheets()
-                worksheet = next((ws for ws in all_ws if ws.title.replace(' ', '') == etf_name), None)
-                if worksheet:
-                    data = worksheet.get_all_values()
-                    if len(data) > 1: existing_df = pd.DataFrame(data[1:], columns=data[0])
-            except: pass
+            all_ws = sh.worksheets()
+            worksheet = next((ws for ws in all_ws if ws.title.replace(' ', '') == etf_name), None)
+            if worksheet:
+                data = worksheet.get_all_values()
+                if len(data) > 1: existing_df = pd.DataFrame(data[1:], columns=data[0])
         
         last_gs_date = existing_df['Date'].max() if not existing_df.empty else "1900-01-01"
         historical_cols = [c for c in existing_df.columns if c != 'Date' and not c.endswith('_증감')] if not existing_df.empty else []
         target_files = [f for f in files_info if f['date'] > last_gs_date]
         if not target_files:
-            print(f"   ✅ 이미 최신 상태입니다. 스킵!\n"); continue
+            print(f"   ✅ 최신 상태입니다. 스킵!"); continue
 
         prev_qty = global_qty_backup.get(etf_name, {})
         new_dates = [f['date'] for f in target_files]
         all_stocks_in_new_files = set()
         for info in target_files:
-            try:
-                r_df, r_n_col, r_w_col, _ = read_etf_data(info['file'])
+            r_df, r_n_col, r_w_col, _ = read_etf_data(info['file'])
+            if r_df is not None:
                 target_names = r_df[r_df[r_w_col] >= 1.0].dropna(subset=[r_n_col])[r_n_col].tolist()
                 all_stocks_in_new_files.update(target_names)
-            except: pass
         
         global_stock_hist_cache = {}
         for st_name in all_stocks_in_new_files:
@@ -181,6 +164,7 @@ for etf_name, files_info in etf_groups.items():
         all_rows = []; historical_new_cols = list(historical_cols) 
         for i, info in enumerate(target_files):
             r_df, r_n_col, r_w_col, r_q_col = read_etf_data(info['file'])
+            if r_df is None: continue
             today_target = r_df[r_df[r_w_col] >= 1.0].sort_values(by=r_w_col, ascending=False)
             for st_name in today_target[r_n_col]:
                 if st_name not in historical_new_cols: historical_new_cols.append(st_name)
@@ -197,6 +181,7 @@ for etf_name, files_info in etf_groups.items():
                     r_val = global_stock_hist_cache[st_name][info['date']]['Change'] * 100
                 elif clean_st in krx_dict:
                     p_val, r_val = krx_dict[clean_st]['Close'], krx_dict[clean_st]['ChagesRatio']
+                
                 try: p_int = int(float(str(p_val).replace(',', '')))
                 except: p_int = 0
                 try: r_float = float(str(r_val).replace(',', '').replace('%', ''))
@@ -225,7 +210,7 @@ for etf_name, files_info in etf_groups.items():
             final_df_gs = final_df.fillna("")
             worksheet.clear()
             worksheet.update(values=[final_df_gs.columns.values.tolist()] + final_df_gs.values.tolist(), range_name="A1")
-            print(f"   => 🌐 구글 시트 업로드 성공!\n")
+            print(f"   => 🌐 구글 시트 업데이트 성공!\n")
     except Exception as e: print(f"❌ 실패 [{etf_name}]: {e}\n")
 
 if google_connected and backup_ws:
@@ -234,4 +219,4 @@ if google_connected and backup_ws:
         for st, q in stocks.items(): backup_rows.append([etf, st, q])
     backup_ws.clear(); backup_ws.update(values=backup_rows, range_name="A1")
 
-print("🎉 모든 데이터가 하나의 시트로 완벽하게 통합되었습니다!")
+print("🎉 불필요한 노이즈 제거 완료! TIME과 KoAct만으로 정갈하게 통합되었습니다.")
