@@ -91,33 +91,53 @@ try:
         for etf_name, room_url in rooms.items():
             try:
                 driver.get(room_url)
-                time.sleep(5) 
+                # TIME 웹사이트의 동적 로딩이 길어졌을 수 있으므로 대기 시간을 넉넉히 7초로 줌
+                time.sleep(7) 
                 
+                # 🔥 [핵심 개선] 대폭 강화된 다중 조건 XPath (옴니 서치 엔진)
                 xpath_excel = (
-                    "//a[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
-                    "//button[contains(@class, 'excel') or contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')] | "
-                    "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel')]/parent::a"
+                    "//*[contains(@class, 'excel') or contains(translate(@class, 'EXCEL', 'excel'), 'excel')] | "
+                    "//a[contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
+                    "//button[contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')] | "
+                    "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel')]/parent::* | "
+                    "//span[contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')]/ancestor::a | "
+                    "//a[contains(@onclick, 'excel') or contains(@onclick, 'Excel')] | "
+                    "//*[contains(text(), 'PDF 다운로드') or contains(text(), 'PDF다운로드')]"
                 )
                 
                 excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
+                
+                # 2차 탐색: 위 조건으로도 못 잡았다면, 텍스트 노드를 무차별 스캔합니다.
+                if not excel_buttons:
+                    excel_buttons = driver.find_elements(By.XPATH, "//*[contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')]")
+
                 if excel_buttons:
-                    target_button = excel_buttons[-1] 
+                    # 화면에 실제로 보이는 버튼(숨겨진 모바일 요소 제외)을 필터링합니다.
+                    visible_buttons = [btn for btn in excel_buttons if btn.is_displayed()]
+                    
+                    # 보이는 버튼이 있으면 그걸 쓰고, 없으면 HTML상 마지막 요소를 강제로 선택합니다.
+                    target_button = visible_buttons[-1] if visible_buttons else excel_buttons[-1]
+                    
+                    # 스크롤을 부드럽게 버튼 위치로 이동
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
-                    time.sleep(1.5)
+                    time.sleep(2)
                     
                     before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
+                    
+                    # JavaScript 강제 클릭 주입
                     driver.execute_script("arguments[0].click();", target_button)
                     print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료!", end="\r")
                     
-                    time.sleep(1)
+                    time.sleep(1.5)
+                    # 혹시 뜨는 경고창(Alert) 무시 처리
                     try:
                         alert = driver.switch_to.alert
                         alert.accept() 
-                        continue 
                     except:
                         pass 
                     
                     new_file_path = None
+                    # 파일이 다운로드 완료될 때까지 최대 15초간 대기하며 감시
                     for _ in range(15):
                         time.sleep(1)
                         after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
@@ -140,9 +160,12 @@ try:
                             shutil.move(new_file_path, final_path)
                             
                         print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ")
-                    else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.")
-                else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.")
-            except Exception as e: print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}")
+                    else: 
+                        print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연 또는 실패.")
+                else: 
+                    print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 웹페이지 내에서 찾을 수 없습니다.")
+            except Exception as e: 
+                print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}")
             time.sleep(2)
 
 finally:
