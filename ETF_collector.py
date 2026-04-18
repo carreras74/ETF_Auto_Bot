@@ -10,13 +10,19 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
-# 💡 [강력한 주말 차단막] 한국 시간 기준 토(5), 일(6)요일이면 수집 안 하고 바로 퇴근!
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 
-if now.weekday() >= 5:
-    print(f"🚫 [주말 차단] 오늘({now.strftime('%Y-%m-%d')})은 주말입니다. 수집 봇이 휴식에 들어갑니다.")
-    sys.exit()
+# 💡 [주말 차단 임시 해제 & 영업일 보정 로직]
+# 토/일요일에 테스트할 경우 sys.exit()을 피하고, 파일명에 찍히는 날짜를 '금요일'로 강제 보정합니다.
+if now.weekday() == 5:  # 토요일
+    print(f"⚠️ [주말 테스트 모드] 오늘은 토요일입니다. 데이터 정합성을 위해 기준일을 금요일로 하루 당겨서 수집합니다.")
+    now = now - timedelta(days=1)
+elif now.weekday() == 6:  # 일요일
+    print(f"⚠️ [주말 테스트 모드] 오늘은 일요일입니다. 데이터 정합성을 위해 기준일을 금요일로 이틀 당겨서 수집합니다.")
+    now = now - timedelta(days=2)
+else:
+    print(f"✅ [평일 정상 가동] 오늘({now.strftime('%Y-%m-%d')}) 평일 스케줄에 따라 수집을 시작합니다.")
 
 target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
@@ -25,7 +31,7 @@ date_time = now.strftime("%Y-%m-%d") # TIME용
 date_koact = now.strftime("%Y%m%d")   # KoAct용 
 
 print(f"📍 작업 위치: {target_dir}")
-print(f"📅 [평일 확인 완료] TIME 기준: {date_time} / KoAct 기준: {date_koact}\n")
+print(f"📅 [최종 파일 기준일] TIME: {date_time} / KoAct: {date_koact}\n")
 
 time_rooms = {
     "코스닥액티브": "https://timeetf.co.kr/m11_view.php?idx=24&cate=002",
@@ -91,10 +97,9 @@ try:
         for etf_name, room_url in rooms.items():
             try:
                 driver.get(room_url)
-                # TIME 웹사이트의 동적 로딩이 길어졌을 수 있으므로 대기 시간을 넉넉히 7초로 줌
                 time.sleep(7) 
                 
-                # 🔥 [핵심 개선] 대폭 강화된 다중 조건 XPath (옴니 서치 엔진)
+                # 🔥 다중 조건 XPath (옴니 서치 엔진 적용)
                 xpath_excel = (
                     "//*[contains(@class, 'excel') or contains(translate(@class, 'EXCEL', 'excel'), 'excel')] | "
                     "//a[contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
@@ -107,29 +112,21 @@ try:
                 
                 excel_buttons = driver.find_elements(By.XPATH, xpath_excel)
                 
-                # 2차 탐색: 위 조건으로도 못 잡았다면, 텍스트 노드를 무차별 스캔합니다.
                 if not excel_buttons:
                     excel_buttons = driver.find_elements(By.XPATH, "//*[contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')]")
 
                 if excel_buttons:
-                    # 화면에 실제로 보이는 버튼(숨겨진 모바일 요소 제외)을 필터링합니다.
                     visible_buttons = [btn for btn in excel_buttons if btn.is_displayed()]
-                    
-                    # 보이는 버튼이 있으면 그걸 쓰고, 없으면 HTML상 마지막 요소를 강제로 선택합니다.
                     target_button = visible_buttons[-1] if visible_buttons else excel_buttons[-1]
                     
-                    # 스크롤을 부드럽게 버튼 위치로 이동
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
                     time.sleep(2)
                     
                     before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                    
-                    # JavaScript 강제 클릭 주입
                     driver.execute_script("arguments[0].click();", target_button)
                     print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료!", end="\r")
                     
                     time.sleep(1.5)
-                    # 혹시 뜨는 경고창(Alert) 무시 처리
                     try:
                         alert = driver.switch_to.alert
                         alert.accept() 
@@ -137,7 +134,6 @@ try:
                         pass 
                     
                     new_file_path = None
-                    # 파일이 다운로드 완료될 때까지 최대 15초간 대기하며 감시
                     for _ in range(15):
                         time.sleep(1)
                         after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
@@ -160,12 +156,9 @@ try:
                             shutil.move(new_file_path, final_path)
                             
                         print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ")
-                    else: 
-                        print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연 또는 실패.")
-                else: 
-                    print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 웹페이지 내에서 찾을 수 없습니다.")
-            except Exception as e: 
-                print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}")
+                    else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.")
+                else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.")
+            except Exception as e: print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}")
             time.sleep(2)
 
 finally:
