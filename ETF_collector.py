@@ -12,8 +12,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 # ==========================================================
 # 🛠️ [선생님의 디버깅 모드 설정] 
-# True로 설정하면 크롬 창이 눈앞에 열려서 과정을 지켜볼 수 있습니다.
-DEBUG_MODE = True 
+# 깃허브 서버(GitHub Actions) 환경이므로 반드시 False로 설정합니다!
+DEBUG_MODE = False 
 # ==========================================================
 
 KST = timezone(timedelta(hours=9))
@@ -23,7 +23,7 @@ now = datetime.now(KST)
 if now.weekday() >= 5:  
     days_to_subtract = now.weekday() - 4 
     target_date = now - timedelta(days=days_to_subtract)
-    print(f"⚠️ [주말 디버그 모드] 누락된 금요일 데이터를 복구하기 위해 기준일을 강제로 {target_date.strftime('%Y-%m-%d')}로 설정합니다.")
+    print(f"⚠️ [주말 모드] 누락된 금요일 데이터를 복구하기 위해 기준일을 강제로 {target_date.strftime('%Y-%m-%d')}로 설정합니다.")
 else:
     target_date = now
     print(f"✅ [평일 정상 가동] 오늘({target_date.strftime('%Y-%m-%d')}) 데이터를 수집합니다.")
@@ -67,7 +67,7 @@ task_list = [
 chrome_options = Options()
 
 if not DEBUG_MODE:
-    chrome_options.add_argument('--headless=new')
+    chrome_options.add_argument('--headless=new') # 깃허브 서버용 필수 옵션
 
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
@@ -114,7 +114,6 @@ try:
                     if search_buttons:
                         visible_search = [btn for btn in search_buttons if btn.is_displayed()]
                         if visible_search:
-                            # 💡 기존 [-1](마지막)에서 [0](첫 번째)로 변경!
                             target_search = visible_search[0]
                             driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_search)
                             time.sleep(1)
@@ -144,7 +143,6 @@ try:
                 if excel_buttons:
                     visible_buttons = [btn for btn in excel_buttons if btn.is_displayed()]
                     
-                    # 💡 [수정됨] TIME은 첫 번째[0] 엑셀 버튼을, KoAct는 기존대로 마지막[-1] 버튼을 누릅니다.
                     if brand == "TIME":
                         target_button = visible_buttons[0] if visible_buttons else excel_buttons[0]
                     else:
@@ -200,7 +198,7 @@ try:
             time.sleep(3)
 
 finally:
-    print("\n🛑 모든 작업이 완료되었습니다. 창을 닫습니다.")
+    print("\n🛑 모든 작업이 완료되었습니다. 브라우저를 닫습니다.")
     time.sleep(3)
     driver.quit()
 
@@ -215,4 +213,4 @@ for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(
             print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}")
         except: pass
 
-print("\n✨ ETF 수집기 디버깅 모드 종료!")
+print("\n✨ ETF 수집 공정 완벽 종료!")
