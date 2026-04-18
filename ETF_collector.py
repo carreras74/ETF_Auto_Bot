@@ -10,25 +10,29 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
+# ==========================================================
+# 🛠️ [선생님의 디버깅 모드 설정] 
+# True로 설정하면 크롬 창이 눈앞에 열려서 과정을 지켜볼 수 있습니다.
+DEBUG_MODE = True 
+# ==========================================================
+
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 
-# 💡 [주말 차단 임시 해제 & 영업일 보정 로직]
-# 토/일요일에 테스트할 경우 sys.exit()을 피하고, 파일명에 찍히는 날짜를 '금요일'로 강제 보정합니다.
-if now.weekday() == 5:  # 토요일
-    print(f"⚠️ [주말 테스트 모드] 오늘은 토요일입니다. 데이터 정합성을 위해 기준일을 금요일로 하루 당겨서 수집합니다.")
-    now = now - timedelta(days=1)
-elif now.weekday() == 6:  # 일요일
-    print(f"⚠️ [주말 테스트 모드] 오늘은 일요일입니다. 데이터 정합성을 위해 기준일을 금요일로 이틀 당겨서 수집합니다.")
-    now = now - timedelta(days=2)
+# 💡 [강제 17일(금요일) 타겟팅 로직]
+if now.weekday() >= 5:  
+    days_to_subtract = now.weekday() - 4 
+    target_date = now - timedelta(days=days_to_subtract)
+    print(f"⚠️ [주말 디버그 모드] 누락된 금요일 데이터를 복구하기 위해 기준일을 강제로 {target_date.strftime('%Y-%m-%d')}로 설정합니다.")
 else:
-    print(f"✅ [평일 정상 가동] 오늘({now.strftime('%Y-%m-%d')}) 평일 스케줄에 따라 수집을 시작합니다.")
+    target_date = now
+    print(f"✅ [평일 정상 가동] 오늘({target_date.strftime('%Y-%m-%d')}) 데이터를 수집합니다.")
 
 target_dir = os.path.dirname(os.path.abspath(__file__))
 download_dir = target_dir
 
-date_time = now.strftime("%Y-%m-%d") # TIME용 
-date_koact = now.strftime("%Y%m%d")   # KoAct용 
+date_time = target_date.strftime("%Y-%m-%d") # TIME용
+date_koact = target_date.strftime("%Y%m%d")   # KoAct용
 
 print(f"📍 작업 위치: {target_dir}")
 print(f"📅 [최종 파일 기준일] TIME: {date_time} / KoAct: {date_koact}\n")
@@ -61,15 +65,16 @@ task_list = [
 ]
 
 chrome_options = Options()
-chrome_options.add_argument('--headless=new') 
+
+if not DEBUG_MODE:
+    chrome_options.add_argument('--headless=new')
+
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--disable-gpu')
-chrome_options.add_argument('--disable-software-rasterizer')
 chrome_options.add_argument('--window-size=1920,1080')
 chrome_options.add_argument('--log-level=3')
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
 chrome_options.add_experimental_option("prefs", {
@@ -81,9 +86,6 @@ chrome_options.add_experimental_option("prefs", {
 })
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-    "source": """ Object.defineProperty(navigator, 'webdriver', { get: () => undefined }) """
-})
 
 try:
     print("🚀 [수집기 가동] 1군(TIME, KoAct) 릴레이 시작!")
@@ -96,16 +98,40 @@ try:
         
         for etf_name, room_url in rooms.items():
             try:
+                print(f"⏳ [{brand}] {etf_name} 접속 중...")
                 driver.get(room_url)
-                time.sleep(7) 
                 
-                # 🔥 다중 조건 XPath (옴니 서치 엔진 적용)
+                time.sleep(5) 
+                
+                # ==========================================================
+                # 🔥 [수정됨] TIME 브랜드일 경우 '첫 번째[0]' 검색 버튼 클릭
+                # ==========================================================
+                if brand == "TIME":
+                    print(f"   🔍 [{brand}] 정확한 데이터 갱신을 위해 '검색' 버튼 선행 클릭 시도...")
+                    xpath_search = "//button[contains(text(), '검색')] | //a[contains(text(), '검색')] | //*[contains(@class, 'btn') and contains(text(), '검색')]"
+                    search_buttons = driver.find_elements(By.XPATH, xpath_search)
+                    
+                    if search_buttons:
+                        visible_search = [btn for btn in search_buttons if btn.is_displayed()]
+                        if visible_search:
+                            # 💡 기존 [-1](마지막)에서 [0](첫 번째)로 변경!
+                            target_search = visible_search[0]
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_search)
+                            time.sleep(1)
+                            driver.execute_script("arguments[0].click();", target_search)
+                            print(f"   ✔️ 첫 번째 '검색' 버튼 클릭 완료! 데이터 테이블 로딩 대기 중 (4초)...")
+                            time.sleep(4)
+                        else:
+                            print(f"   ⚠️ 화면에 표시된 '검색' 버튼이 없습니다.")
+                    else:
+                        print(f"   ⚠️ '검색' 태그를 찾지 못했습니다.")
+                # ==========================================================
+
                 xpath_excel = (
                     "//*[contains(@class, 'excel') or contains(translate(@class, 'EXCEL', 'excel'), 'excel')] | "
                     "//a[contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀') or contains(@href, 'excel')] | "
                     "//button[contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')] | "
                     "//img[contains(@alt, '엑셀') or contains(translate(@alt, 'EXCEL', 'excel'), 'excel')]/parent::* | "
-                    "//span[contains(translate(text(), 'EXCEL', 'excel'), 'excel') or contains(text(), '엑셀')]/ancestor::a | "
                     "//a[contains(@onclick, 'excel') or contains(@onclick, 'Excel')] | "
                     "//*[contains(text(), 'PDF 다운로드') or contains(text(), 'PDF다운로드')]"
                 )
@@ -117,16 +143,22 @@ try:
 
                 if excel_buttons:
                     visible_buttons = [btn for btn in excel_buttons if btn.is_displayed()]
-                    target_button = visible_buttons[-1] if visible_buttons else excel_buttons[-1]
+                    
+                    # 💡 [수정됨] TIME은 첫 번째[0] 엑셀 버튼을, KoAct는 기존대로 마지막[-1] 버튼을 누릅니다.
+                    if brand == "TIME":
+                        target_button = visible_buttons[0] if visible_buttons else excel_buttons[0]
+                    else:
+                        target_button = visible_buttons[-1] if visible_buttons else excel_buttons[-1]
                     
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", target_button)
                     time.sleep(2)
                     
                     before_files = set(glob.glob(os.path.join(download_dir, "*.*")))
-                    driver.execute_script("arguments[0].click();", target_button)
-                    print(f"📥 [{brand}] {etf_name} 버튼 클릭 완료!", end="\r")
                     
-                    time.sleep(1.5)
+                    print(f"👆 [{brand}] {etf_name} 엑셀 다운로드 버튼 클릭 시도!")
+                    driver.execute_script("arguments[0].click();", target_button)
+                    
+                    time.sleep(2)
                     try:
                         alert = driver.switch_to.alert
                         alert.accept() 
@@ -134,7 +166,8 @@ try:
                         pass 
                     
                     new_file_path = None
-                    for _ in range(15):
+                    print(f"📥 다운로드 대기 중 (최대 15초)...", end="")
+                    for i in range(15):
                         time.sleep(1)
                         after_files = set(glob.glob(os.path.join(download_dir, "*.*")))
                         new_files = after_files - before_files
@@ -142,7 +175,9 @@ try:
                         
                         if excel_files:
                             new_file_path = list(excel_files)[0]
+                            print(" ⭕ 완료!")
                             break
+                        print(".", end="", flush=True)
                     
                     if new_file_path:
                         ext = os.path.splitext(new_file_path)[1]
@@ -155,14 +190,18 @@ try:
                             if os.path.exists(final_path): os.remove(final_path)
                             shutil.move(new_file_path, final_path)
                             
-                        print(f"\n✅ [{brand}] {etf_name} 수집 성공!      ")
-                    else: print(f"\n⚠️ [{brand}] {etf_name} 다운로드 지연.")
-                else: print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼을 찾을 수 없습니다.")
-            except Exception as e: print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}")
-            time.sleep(2)
+                        print(f"✅ [{brand}] {etf_name} 저장 완료 -> {final_name}")
+                    else: 
+                        print(f"\n⚠️ [{brand}] {etf_name} 다운로드가 안 되었습니다. 폴더를 확인해주세요.")
+                else: 
+                    print(f"\n❌ [{brand}] {etf_name} 엑셀 버튼 자체를 찾지 못했습니다!")
+            except Exception as e: 
+                print(f"\n❌ [{brand}] {etf_name} 에러 발생: {e}")
+            time.sleep(3)
 
 finally:
-    time.sleep(2)
+    print("\n🛑 모든 작업이 완료되었습니다. 창을 닫습니다.")
+    time.sleep(3)
     driver.quit()
 
 safe_files = ["매입장부.xlsx"] 
@@ -176,4 +215,4 @@ for f in glob.glob(os.path.join(target_dir, "*.xlsx")) + glob.glob(os.path.join(
             print(f"   🗑️ 쓰레기 파일 삭제 완료: {fname}")
         except: pass
 
-print("\n✨ ETF 수집 및 청소 공정 완벽 종료!")
+print("\n✨ ETF 수집기 디버깅 모드 종료!")
